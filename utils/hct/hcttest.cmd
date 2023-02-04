@@ -1,6 +1,10 @@
 @echo off
 setlocal ENABLEDELAYEDEXPANSION ENABLEEXTENSIONS
 
+rem Remove entries from PATH that lead to DXIL.dll, otherwise DxCompiler.dll
+rem may load an undesired version from some random location (like an SDK path).
+call :removepathsto dxil.dll
+
 rem Default build config is Debug
 if "%BUILD_CONFIG%"=="" (
   set BUILD_CONFIG=Debug
@@ -369,7 +373,7 @@ if "%TEST_EXEC%"=="1" (
   call :copyagility
 )
 
-set EXEC_COMMON_ARGS= /runIgnoredTests /p:"ExperimentalShaders=*" %TEST_ADAPTER% %USE_AGILITY_SDK%
+set EXEC_COMMON_ARGS=/p:"HlslDataDir=%HLSL_SRC_DIR%\tools\clang\unittests\HLSLExec" /p:"ExperimentalShaders=*" %TEST_ADAPTER% %USE_AGILITY_SDK%
 if "%TEST_EXEC%"=="1" (
   echo Sniffing for D3D12 configuration ...
   call :runte exec-hlsl-tests.dll /select:"@Name='ExecutionTest::BasicTriangleTest' AND @Architecture='%TEST_ARCH%'" %EXEC_COMMON_ARGS% 
@@ -583,3 +587,28 @@ if exist "%HLSL_AGILITYSDK_DIR%\build\native\bin\%BUILD_ARCH_DIR%\D3D12Core.dll"
 mkdir "%HLSL_TAEF_DIR%\%BUILD_ARCH_DIR%\D3D12" 1>nul 2>nul
 call %HCT_DIR%\hctcopy.cmd "%FULL_AGILITY_PATH%" "%HLSL_TAEF_DIR%\%BUILD_ARCH_DIR%\D3D12" D3D12Core.dll d3d12SDKLayers.dll
 exit /b %ERRORLEVEL%
+
+:removepathsto
+rem Remove all paths from PATH leading to the specified file
+set _REMAINING_PATH_TO_CHECK_=%PATH%
+set PATH=
+call :addpaths_unlessmatch "%~1"
+exit /b %errorlevel%
+
+:addpaths_unlessmatch
+rem Add path elements to PATH from _REMAINING_PATH_TO_CHECK_ unless it matches arg 1
+for /F "tokens=1,* delims=;" %%f IN ("%_REMAINING_PATH_TO_CHECK_%") DO (
+  rem Strip first item from _REMAINING_PATH_TO_CHECK_ and add if not a match
+  set "_REMAINING_PATH_TO_CHECK_=%%g"
+  if NOT exist "%%f\%~1" (
+    if "%PATH%" == "" (
+      set "PATH=%%f"
+    ) else (
+      set "PATH=%PATH%;%%f"
+    )
+  )
+  break
+)
+rem Loop while items remaining
+if NOT "%_REMAINING_PATH_TO_CHECK_%" == "" goto :addpaths_unlessmatch
+exit /b 0

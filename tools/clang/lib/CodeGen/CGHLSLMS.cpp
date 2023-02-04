@@ -304,6 +304,7 @@ public:
   void MarkSwitchStmt(CodeGenFunction &CGF, SwitchInst *switchInst,
                       BasicBlock *endSwitch) override;
   void MarkReturnStmt(CodeGenFunction &CGF, BasicBlock *bbWithRet) override;
+  void MarkCleanupBlock(CodeGenFunction &CGF, llvm::BasicBlock *cleanupBB) override;
   void MarkLoopStmt(CodeGenFunction &CGF, BasicBlock *loopContinue,
                      BasicBlock *loopExit) override;
   CGHLSLMSHelper::Scope* MarkScopeEnd(CodeGenFunction &CGF) override;
@@ -2393,7 +2394,7 @@ void CGMSHLSLRuntime::AddHLSLFunctionInfo(Function *F, const FunctionDecl *FD) {
     F->addFnAttr(Twine("exp-", Attr->getName()).str(), Attr->getValue());
   }
 
-  m_ScopeMap[F] = ScopeInfo(F);
+  m_ScopeMap[F] = ScopeInfo(F, FD->getLocation());
 }
 
 void CGMSHLSLRuntime::RemapObsoleteSemantic(DxilParameterAnnotation &paramInfo, bool isPatchConstantFunction) {
@@ -4041,7 +4042,9 @@ static Value* ConvertScalarOrVector(CGBuilderTy& Builder, CodeGenTypes &Types,
   llvm::Type *SrcTy = Val->getType();
   llvm::Type *DstTy = Types.ConvertType(DstQualTy);
 
-  DXASSERT(Val->getType() == Types.ConvertType(SrcQualTy), "QualType/Value mismatch!");
+  DXASSERT(Val->getType() == Types.ConvertType(SrcQualTy) ||
+               Val->getType() == Types.ConvertTypeForMem(SrcQualTy),
+           "QualType/Value mismatch!");
   DXASSERT((SrcTy->isIntOrIntVectorTy() || SrcTy->isFPOrFPVectorTy())
     && (DstTy->isIntOrIntVectorTy() || DstTy->isFPOrFPVectorTy()),
     "EmitNumericConversion can only be used with int/float scalars/vectors.");
@@ -6242,6 +6245,10 @@ void CGMSHLSLRuntime::MarkIfStmt(CodeGenFunction &CGF, BasicBlock *endIfBB) {
     Scope->AddIf(endIfBB);
 }
 
+void CGMSHLSLRuntime::MarkCleanupBlock(CodeGenFunction &CGF, llvm::BasicBlock *cleanupBB) {
+  if (ScopeInfo *Scope = GetScopeInfo(CGF.CurFn))
+    Scope->AddCleanupBB(cleanupBB);
+}
 
 void CGMSHLSLRuntime::MarkSwitchStmt(CodeGenFunction &CGF,
                                      SwitchInst *switchInst,

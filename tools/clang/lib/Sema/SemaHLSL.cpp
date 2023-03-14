@@ -36,7 +36,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "dxc/Support/Global.h"
 #include "dxc/Support/WinIncludes.h"
-#include "dxc/Support/WinAdapter.h"
+#include "dxc/WinAdapter.h"
 #include "dxc/dxcapi.internal.h"
 #include "dxc/HlslIntrinsicOp.h"
 #include "gen_intrin_main_tables_15.h"
@@ -2712,9 +2712,12 @@ public:
   }
 };
 
-static void AddHLSLSubscriptAttr(Decl *D, ASTContext &context, HLSubscriptOpcode opcode) {
+static void AddHLSLSubscriptAttr(Decl *D, ASTContext &context,
+                                 HLSubscriptOpcode opcode) {
   StringRef group = GetHLOpcodeGroupName(HLOpcodeGroup::HLSubscript);
-  D->addAttr(HLSLIntrinsicAttr::CreateImplicit(context, group, "", static_cast<unsigned>(opcode)));
+  D->addAttr(HLSLIntrinsicAttr::CreateImplicit(context, group, "",
+                                               static_cast<unsigned>(opcode)));
+  D->addAttr(HLSLCXXOverloadAttr::CreateImplicit(context));
 }
 
 static void CreateSimpleField(clang::ASTContext &context, CXXRecordDecl *recordDecl, StringRef Name,
@@ -3288,9 +3291,11 @@ private:
     // Create the declaration.
     IdentifierInfo* ii = &m_context->Idents.get(StringRef(intrinsic->pArgs[0].pName));
     DeclarationName declarationName = DeclarationName(ii);
-    CXXMethodDecl* functionDecl = CreateObjectFunctionDeclarationWithParams(*m_context, recordDecl,
-      functionResultQT, ArrayRef<QualType>(argsQTs, numParams), ArrayRef<StringRef>(argNames, numParams),
-      declarationName, true);
+    CXXMethodDecl *functionDecl = CreateObjectFunctionDeclarationWithParams(
+        *m_context, recordDecl, functionResultQT,
+        ArrayRef<QualType>(argsQTs, numParams),
+        ArrayRef<StringRef>(argNames, numParams), declarationName, true,
+        templateParamNamedDeclsCount > 0);
     functionDecl->setImplicit(true);
 
     // If the function is a template function, create the declaration and cross-reference.
@@ -3478,10 +3483,12 @@ private:
     CXXMethodDecl *functionDecl = CreateObjectFunctionDeclarationWithParams(
         *m_context, recordDecl, resultType, ArrayRef<QualType>(indexType),
         ArrayRef<StringRef>(StringRef("index")),
-        m_context->DeclarationNames.getCXXOperatorName(OO_Subscript), true);
+        m_context->DeclarationNames.getCXXOperatorName(OO_Subscript), true,
+        true);
     hlsl::CreateFunctionTemplateDecl(
         *m_context, recordDecl, functionDecl,
         reinterpret_cast<NamedDecl **>(&templateTypeParmDecl), 1);
+    functionDecl->addAttr(HLSLCXXOverloadAttr::CreateImplicit(*m_context));
 
     // Add a .mips member if necessary.
     QualType uintType = m_context->UnsignedIntTy;
@@ -4963,6 +4970,8 @@ public:
         case AR_TOBJ_COMPOUND:
           {
             const RecordDecl* recordDecl = recordType->getDecl();
+            if (recordDecl->isInvalidDecl())
+              return false;
             RecordDecl::field_iterator begin = recordDecl->field_begin();
             RecordDecl::field_iterator end = recordDecl->field_end();
             bool result = true;
@@ -12198,6 +12207,10 @@ void hlsl::HandleDeclAttributeForHLSL(Sema &S, Decl *D, const AttributeList &A, 
     break;
   case AttributeList::AT_HLSLInOut:
     declAttr = ::new (S.Context) HLSLInOutAttr(A.getRange(), S.Context,
+      A.getAttributeSpellingListIndex());
+    break;
+  case AttributeList::AT_HLSLMaybeUnused:
+    declAttr = ::new (S.Context) HLSLMaybeUnusedAttr(A.getRange(), S.Context,
       A.getAttributeSpellingListIndex());
     break;
 

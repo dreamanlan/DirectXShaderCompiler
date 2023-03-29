@@ -288,10 +288,11 @@ void StmtDslPrinter::VisitWhileStmt(WhileStmt *Node) {
     PrintRawDeclStmt(DS);
   else
     PrintExpr(Node->getCond());
-  OS << ")\n";
-  IndentLevel = IndentLevel - 1; // HLSL Change - TODO: Find the root cause of this issue.
+  OS << ") ";
+  //IndentLevel = IndentLevel + 1; // HLSL Change - TODO: Find the root cause of this issue.
   PrintAsRawCompoundStmt(Node->getBody());
-  IndentLevel = IndentLevel + 1; // HLSL Change  
+  OS << ";\n";
+  //IndentLevel = IndentLevel + 1; // HLSL Change  
 }
 
 void StmtDslPrinter::VisitDoStmt(DoStmt *Node) {

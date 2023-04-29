@@ -1721,7 +1721,7 @@ void StmtDslPrinter::VisitCUDAKernelCallExpr(CUDAKernelCallExpr *Node) {
 }
 
 void StmtDslPrinter::VisitCXXNamedCastExpr(CXXNamedCastExpr *Node) {
-  OS << Node->getCastName() << '<:';
+  OS << Node->getCastName() << "<:";
   Node->getTypeAsWritten().print(OS, Policy);
   OS << ":>(";
   PrintExpr(Node->getSubExpr());

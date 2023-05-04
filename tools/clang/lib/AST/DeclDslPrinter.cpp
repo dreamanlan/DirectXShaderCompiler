@@ -1777,8 +1777,8 @@ void hlsl::CustomDslPrintHLSLAttr(const clang::Attr *A, llvm::raw_ostream &Out,
     break;
 
   // These four cases are printed in TypePrinter::printAttributedBefore
-  case clang::attr::HLSLColumnMajor:
-  case clang::attr::HLSLRowMajor:
+  //case clang::attr::HLSLColumnMajor:
+  //case clang::attr::HLSLRowMajor:
   case clang::attr::HLSLSnorm:
   case clang::attr::HLSLUnorm:
     break;

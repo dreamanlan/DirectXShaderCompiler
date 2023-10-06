@@ -856,7 +856,7 @@ are translated into SPIR-V ``OpTypeImage``, with parameters:
 ``Texture1DArray``      Sampled Image         RO   ``UniformConstant`` ``1D``      2       1    0    1     ``Unknown``
 ``Texture2DArray``      Sampled Image         RO   ``UniformConstant`` ``2D``      2       1    0    1     ``Unknown``
 ``Texture2DMS``         Sampled Image         RO   ``UniformConstant`` ``2D``      2       0    1    1     ``Unknown``
-``Texture2DMSArray``    Sampled Image         RO   ``UniformConstant`` ``2D``      2       1    1    1     ``Unknown``      ``ImageMSArray``
+``Texture2DMSArray``    Sampled Image         RO   ``UniformConstant`` ``2D``      2       1    1    1     ``Unknown``
 ``TextureCubeArray``    Sampled Image         RO   ``UniformConstant`` ``3D``      2       1    0    1     ``Unknown``
 ``Buffer<T>``           Uniform Texel Buffer  RO   ``UniformConstant`` ``Buffer``  2       0    0    1     Depends on ``T`` ``SampledBuffer``
 ``RWBuffer<T>``         Storage Texel Buffer  RW   ``UniformConstant`` ``Buffer``  2       0    0    2     Depends on ``T`` ``SampledBuffer``
@@ -4067,6 +4067,8 @@ codegen for Vulkan:
   to the HLSL entry point name.
 - ``-fspv-use-legacy-buffer-matrix-order``: Assumes the legacy matrix order (row
   major) when accessing raw buffers (e.g., ByteAdddressBuffer).
+- ``-fspv-preserve-interface``: Preserves all interface variables in the entry
+  point, even when those variables are unused.
 - ``-Wno-vk-ignored-features``: Does not emit warnings on ignored features
   resulting from no Vulkan support, e.g., cbuffer member initializer.
 

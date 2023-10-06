@@ -285,7 +285,7 @@ def pack_optimized : Flag<["-", "/"], "pack-optimized">, Group<hlslcomp_Group>, 
 def pack_optimized_ : Flag<["-", "/"], "pack_optimized">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
   HelpText<"Optimize signature packing assuming identical signature provided for each connecting stage">;
 def hlsl_version : Separate<["-", "/"], "HV">, Group<hlslcomp_Group>, Flags<[CoreOption, RewriteOption]>,
-  HelpText<"HLSL version (2016, 2017, 2018, 2021). Default is 2018">;
+  HelpText<"HLSL version (2016, 2017, 2018, 2021). Default is 2021">;
 def no_warnings : Flag<["-", "/"], "no-warnings">, Group<hlslcomp_Group>, Flags<[CoreOption, RewriteOption]>,
   HelpText<"Suppress warnings">;
 def rootsig_define : Separate<["-", "/"], "rootsig-define">, Group<hlslcomp_Group>, Flags<[CoreOption]>,
@@ -307,10 +307,14 @@ def encoding : Separate<["-", "/"], "encoding">, Group<hlslcomp_Group>, Flags<[C
   HelpText<"Set default encoding for source inputs and text outputs (utf8|utf16(win)|utf32(*nix)|wide) default=utf8">;
 def validator_version : Separate<["-", "/"], "validator-version">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
   HelpText<"Override validator version for module.  Format: <major.minor> ; Default: DXIL.dll version or current internal version.">;
+def print_before_all : Flag<["-", "/"], "print-before-all">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
+  HelpText<"Print LLVM IR before each pass.">;
+def print_before : Separate<["-", "/"], "print-before">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
+  HelpText<"Print LLVM IR before a specific pass. May be specificied multiple times.">;
 def print_after_all : Flag<["-", "/"], "print-after-all">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
   HelpText<"Print LLVM IR after each pass.">;
 def print_after : Separate<["-", "/"], "print-after">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
-  HelpText<"Print LLVM IR after a specific pass.">;
+  HelpText<"Print LLVM IR after a specific pass. May be specificied multiple times.">;
 def ignore_opt_semdefs : Flag<["-", "/"], "ignore-opt-semdefs">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
   HelpText<"Ignore optional semantic defines which are not required to ensure program correctness.">;
 def ignore_semdef : Separate<["-", "/"], "ignore-semdef">, Group<hlslcomp_Group>, Flags<[CoreOption, HelpHidden]>,
@@ -392,6 +396,12 @@ def fspv_print_all: Flag<["-"], "fspv-print-all">, Group<spirv_Group>, Flags<[Co
   HelpText<"Print the SPIR-V module before each pass and after the last one. Useful for debugging SPIR-V legalization and optimization passes.">;
 def Oconfig : CommaJoined<["-"], "Oconfig=">, Group<spirv_Group>, Flags<[CoreOption]>,
   HelpText<"Specify a comma-separated list of SPIRV-Tools passes to customize optimization configuration (see http://khr.io/hlsl2spirv#optimization)">;
+def fspv_preserve_bindings : Flag<["-"], "fspv-preserve-bindings">, Group<spirv_Group>, Flags<[CoreOption, DriverOption]>,
+  HelpText<"Preserves all bindings declared within the module, even when those bindings are unused">;
+def fspv_preserve_interface : Flag<["-"], "fspv-preserve-interface">, Group<spirv_Group>, Flags<[CoreOption, DriverOption]>,
+  HelpText<"Preserves all interface variables in the entry point, even when those variables are unused">;
+def fvk_allow_rwstructuredbuffer_arrays: Flag<["-"], "fvk-allow-rwstructuredbuffer-arrays">, Group<spirv_Group>, Flags<[CoreOption, DriverOption, HelpHidden]>,
+  HelpText<"Allow arrays of RWStructuredBuffers, AppendStructuredBuffers, and ConsumeStructuredBuffers. This is in development, and the option will be removed when the feature is complete.">;
 // SPIRV Change Ends
 
 //////////////////////////////////////////////////////////////////////////////

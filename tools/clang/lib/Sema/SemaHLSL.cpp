@@ -860,7 +860,7 @@ static QualType GetOrCreateMatrixSpecialization(
           DeclarationName(&context.Idents.get(StringRef("h"))));
   // DSL Change begin.
   //DXASSERT(!lookupResult.empty(),
-           "otherwise matrix handle cannot be looked up");
+  //         "otherwise matrix handle cannot be looked up");
   if (lookupResult.empty()) {
     sema->getDiagnostics().Report(clang::StoredDiagnostic(
         clang::DiagnosticsEngine::Fatal,
@@ -905,7 +905,7 @@ GetOrCreateVectorSpecialization(ASTContext &context, Sema *sema,
           DeclarationName(&context.Idents.get(StringRef("h"))));
   // DSL Change begin.
   //DXASSERT(!lookupResult.empty(),
-           "otherwise vector handle cannot be looked up");
+  //         "otherwise vector handle cannot be looked up");
   if (lookupResult.empty()) {
     sema->getDiagnostics().Report(clang::StoredDiagnostic(
         clang::DiagnosticsEngine::Fatal,

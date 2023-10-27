@@ -190,6 +190,6 @@ int main(int argc, const char **argv) {
     printf("Compilation failed - unable to retrieve error message.\n");
     return 1;
   }
-
+  fflush(stdout);
   return 0;
 }

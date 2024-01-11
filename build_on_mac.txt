@@ -3,7 +3,7 @@
 3、在源码根目录执行（这步似乎也不解决编译错误，可选操作吧。另 Directx-Headers 编译会报错，更新后回退相关修改）
     git submodule update --remote
 4、sh builddxc.sh
-5、编译好的 dxc 在 dxcbuild/bin 目录下
+5、编译好的 dxc与dxr 在 dxcbuild/bin 目录下，一些.a 库文件在 dxbuild/lib 目录下，同步更新到使用方目录即可
 
 注意：mac 版本源码目前存在一些编译错误，注释掉出错的代码即可（不影响 dxr 的功能，主要是与 spir-v 有关的代码）
 

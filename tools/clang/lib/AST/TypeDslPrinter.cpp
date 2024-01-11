@@ -224,7 +224,8 @@ bool TypeDslPrinter::canPrefixQualifiers(const Type *T,
     case Type::VariableArray:
     case Type::DependentSizedArray:
       NeedARCStrongQualifier = true;
-      // Fall through
+      // Fall through    
+      LLVM_FALLTHROUGH;
       
     case Type::Adjusted:
     case Type::Decayed:
@@ -1377,7 +1378,7 @@ void TypeDslPrinter::printObjCObjectBefore(const ObjCObjectType *T,
 
   if (T->isSpecializedAsWritten()) {
     bool isFirst = true;
-    OS << '<:';
+    OS << "<:";
     for (auto typeArg : T->getTypeArgsAsWritten()) {
       if (isFirst)
         isFirst = false;
@@ -1386,12 +1387,12 @@ void TypeDslPrinter::printObjCObjectBefore(const ObjCObjectType *T,
 
       print(typeArg, OS, StringRef());
     }
-    OS << ':>';
+    OS << ":>";
   }
 
   if (!T->qual_empty()) {
     bool isFirst = true;
-    OS << '<:';
+    OS << "<:";
     for (const auto *I : T->quals()) {
       if (isFirst)
         isFirst = false;
@@ -1399,7 +1400,7 @@ void TypeDslPrinter::printObjCObjectBefore(const ObjCObjectType *T,
         OS << ',';
       OS << I->getName();
     }
-    OS << ':>';
+    OS << ":>";
   }
 
   spaceBeforePlaceHolder(OS);

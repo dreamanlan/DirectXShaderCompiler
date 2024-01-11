@@ -25,8 +25,10 @@
 #include "clang/SPIRV/AstTypeProbe.h"
 #include "clang/SPIRV/String.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Casting.h"
 
 #ifdef SUPPORT_QUERY_GIT_COMMIT_INFO
 #include "clang/Basic/Version.h"
@@ -865,6 +867,8 @@ void SpirvEmitter::HandleTranslationUnit(ASTContext &context) {
 
   // Output the constructed module.
   std::vector<uint32_t> m = spvBuilder.takeModule();
+  if (context.getDiagnostics().hasErrorOccurred())
+    return;
 
   // Check the existance of Texture and Sampler with
   // [[vk::combinedImageSampler]] for the same descriptor set and binding.
@@ -1641,6 +1645,39 @@ bool SpirvEmitter::validateVKAttributes(const NamedDecl *decl) {
     }
   }
 
+  // a VarDecl should have only one of vk::ext_builtin_input or
+  // vk::ext_builtin_output
+  if (decl->hasAttr<VKExtBuiltinInputAttr>() &&
+      decl->hasAttr<VKExtBuiltinOutputAttr>()) {
+    emitError("vk::ext_builtin_input cannot be used together with "
+              "vk::ext_builtin_output",
+              decl->getAttr<VKExtBuiltinOutputAttr>()->getLocation());
+    success = false;
+  }
+
+  // vk::ext_builtin_input and vk::ext_builtin_output must only be used for a
+  // static variable. We only allow them to be attached to variables, so it
+  // should be fine to cast here.
+  if ((decl->hasAttr<VKExtBuiltinInputAttr>() ||
+       decl->hasAttr<VKExtBuiltinOutputAttr>()) &&
+      cast<VarDecl>(decl)->getStorageClass() != StorageClass::SC_Static) {
+    emitError("vk::ext_builtin_input and vk::ext_builtin_output can only be "
+              "applied to a static variable",
+              decl->getLocation());
+    success = false;
+  }
+
+  // vk::ext_builtin_input and vk::ext_builtin_output must only be used for a
+  // static variable. We only allow them to be attached to variables, so it
+  // should be fine to cast here.
+  if (decl->hasAttr<VKExtBuiltinInputAttr>() &&
+      !cast<VarDecl>(decl)->getType().isConstQualified()) {
+    emitError("vk::ext_builtin_input can only be applied to a const-qualified "
+              "variable",
+              decl->getLocation());
+    success = false;
+  }
+
   return success;
 }
 
@@ -1675,7 +1712,7 @@ void SpirvEmitter::doHLSLBufferDecl(const HLSLBufferDecl *bufferDecl) {
   } else if (bufferDecl->hasAttr<VKShaderRecordEXTAttr>()) {
     (void)declIdMapper.createShaderRecordBuffer(
         bufferDecl,
-        DeclResultIdMapper::ContextUsageKind::ShaderRecordBufferEXT);
+        DeclResultIdMapper::ContextUsageKind::ShaderRecordBufferKHR);
   } else {
     (void)declIdMapper.createCTBuffer(bufferDecl);
   }
@@ -1791,7 +1828,39 @@ void SpirvEmitter::doVarDecl(const VarDecl *decl) {
 
   if (decl->hasAttr<VKShaderRecordEXTAttr>()) {
     (void)declIdMapper.createShaderRecordBuffer(
-        decl, DeclResultIdMapper::ContextUsageKind::ShaderRecordBufferEXT);
+        decl, DeclResultIdMapper::ContextUsageKind::ShaderRecordBufferKHR);
+    return;
+  }
+
+  // Handle vk::ext_builtin_input and vk::ext_builtin_input by using
+  // getBuiltinVar to create the builtin and validate the storage class
+  if (decl->hasAttr<VKExtBuiltinInputAttr>()) {
+    auto *builtinAttr = decl->getAttr<VKExtBuiltinInputAttr>();
+    int builtinId = builtinAttr->getBuiltInID();
+    SpirvVariable *builtinVar =
+        declIdMapper.getBuiltinVar(spv::BuiltIn(builtinId), decl->getType(),
+                                   spv::StorageClass::Input, loc);
+    if (builtinVar->getStorageClass() != spv::StorageClass::Input) {
+      emitError("cannot redefine builtin %0 as an input",
+                builtinAttr->getLocation())
+          << builtinId;
+      emitWarning("previous definition is here",
+                  builtinVar->getSourceLocation());
+    }
+    return;
+  } else if (decl->hasAttr<VKExtBuiltinOutputAttr>()) {
+    auto *builtinAttr = decl->getAttr<VKExtBuiltinOutputAttr>();
+    int builtinId = builtinAttr->getBuiltInID();
+    SpirvVariable *builtinVar =
+        declIdMapper.getBuiltinVar(spv::BuiltIn(builtinId), decl->getType(),
+                                   spv::StorageClass::Output, loc);
+    if (builtinVar->getStorageClass() != spv::StorageClass::Output) {
+      emitError("cannot redefine builtin %0 as an output",
+                builtinAttr->getLocation())
+          << builtinId;
+      emitWarning("previous definition is here",
+                  builtinVar->getSourceLocation());
+    }
     return;
   }
 
@@ -3406,6 +3475,9 @@ SpirvInstruction *SpirvEmitter::doCastExpr(const CastExpr *expr,
 
     if (!subExprInstr)
       subExprInstr = loadIfGLValue(subExpr);
+
+    if (!subExprInstr)
+      return nullptr;
 
     auto *val = processFlatConversion(toType, evalType, subExprInstr,
                                       expr->getExprLoc(), range);
@@ -8740,6 +8812,11 @@ SpirvEmitter::processIntrinsicCallExpr(const CallExpr *callExpr) {
     }
     break;
   }
+  case hlsl::IntrinsicOp::IOP_dot4add_i8packed:
+  case hlsl::IntrinsicOp::IOP_dot4add_u8packed: {
+    retVal = processIntrinsicDP4a(callExpr, hlslOpcode);
+    break;
+  }
   case hlsl::IntrinsicOp::IOP_pack_s8:
   case hlsl::IntrinsicOp::IOP_pack_u8:
   case hlsl::IntrinsicOp::IOP_pack_clamp_s8:
@@ -8973,6 +9050,51 @@ SpirvEmitter::processIntrinsicFirstbit(const CallExpr *callExpr,
                                        srcRange);
 }
 
+// Returns true is the given expression can be used as an output parameter.
+//
+// Warning: this function could return false negatives.
+// HLSL had no references, and the AST handling of lvalues and rvalues is not
+// to be trusted for this usage.
+//  - output variables can be passed but marked as rvalues.
+//  - rvalues can becomes lvalues due to an operator call.
+// This means we need to walk the expression, and explicitly allow some cases.
+// I might have missed a valid use-case, hence the risk of false-negative.
+bool isValidOutputArgument(const Expr *expr) {
+  // This could be either a member from an R-value, or an L-value. Checking
+  // struct.
+  if (const MemberExpr *member = dyn_cast<MemberExpr>(expr))
+    return isValidOutputArgument(member->getBase());
+
+  // This could be either a subscript into an R-value, or an L-value. Checking
+  // array.
+  if (const ArraySubscriptExpr *item = dyn_cast<ArraySubscriptExpr>(expr))
+    return isValidOutputArgument(item->getBase());
+
+  // Accessor to HLSL vectors.
+  if (const HLSLVectorElementExpr *vec = dyn_cast<HLSLVectorElementExpr>(expr))
+    return isValidOutputArgument(vec->getBase());
+
+  // Going through implicit casts.
+  if (const ImplicitCastExpr *cast = dyn_cast<ImplicitCastExpr>(expr))
+    return isValidOutputArgument(cast->getSubExpr());
+
+  // For call operators, we trust the LValue() method.
+  // Haven't found a cases where this is not true.
+  if (const CXXOperatorCallExpr *call = dyn_cast<CXXOperatorCallExpr>(expr))
+    return call->isLValue();
+  if (const CallExpr *call = dyn_cast<CallExpr>(expr))
+    return call->isLValue();
+
+  // If we have a declaration, only accept l-values/variables.
+  if (const DeclRefExpr *ref = dyn_cast<DeclRefExpr>(expr)) {
+    if (!ref->isLValue())
+      return false;
+    return dyn_cast<VarDecl>(ref->getDecl()) != nullptr;
+  }
+
+  return false;
+}
+
 SpirvInstruction *
 SpirvEmitter::processIntrinsicInterlockedMethod(const CallExpr *expr,
                                                 hlsl::IntrinsicOp opcode) {
@@ -9007,9 +9129,9 @@ SpirvEmitter::processIntrinsicInterlockedMethod(const CallExpr *expr,
   const auto srcLoc = expr->getExprLoc();
   const auto baseType = dest->getType()->getCanonicalTypeUnqualified();
 
-  if (!baseType->isIntegerType()) {
-    emitError("can only perform atomic operations on scalar integer values",
-              dest->getLocStart());
+  if (!baseType->isIntegerType() && !baseType->isFloatingType()) {
+    llvm_unreachable("Unexpected type for atomic operation. Expecting a scalar "
+                     "integer or float values");
     return nullptr;
   }
 
@@ -9034,7 +9156,7 @@ SpirvEmitter::processIntrinsicInterlockedMethod(const CallExpr *expr,
                                        const CallExpr *callExpr,
                                        uint32_t outputArgIndex) {
     const auto outputArg = callExpr->getArg(outputArgIndex);
-    if (dyn_cast<DeclRefExpr>(outputArg) == nullptr) {
+    if (!isValidOutputArgument(outputArg)) {
       emitError(
           "InterlockedCompareExchange requires a reference as output parameter",
           outputArg->getExprLoc());
@@ -11385,6 +11507,68 @@ SpirvEmitter::processIntrinsicLog10(const CallExpr *callExpr) {
                                    range);
 }
 
+SpirvInstruction *SpirvEmitter::processIntrinsicDP4a(const CallExpr *callExpr,
+                                                     hlsl::IntrinsicOp op) {
+  // Processing the `dot4add_i8packed` and `dot4add_u8packed` intrinsics.
+  // There is no direct substitution for them in SPIR-V, but the combination
+  // of OpSDot / OpUDot and OpIAdd works. Note that the OpSDotAccSat and
+  // OpUDotAccSat operations are not matching the HLSL intrinsics as there
+  // should not be any saturation.
+  //
+  // int32 dot4add_i8packed(uint32 a, uint32 b, int32 acc);
+  //    A 4-dimensional signed integer dot-product with add. Multiplies together
+  //    each corresponding pair of signed 8-bit int bytes in the two input
+  //    DWORDs, and sums the results into the 32-bit signed integer accumulator.
+  //
+  // uint32 dot4add_u8packed(uint32 a, uint32 b, uint32 acc);
+  //    A 4-dimensional unsigned integer dot-product with add. Multiplies
+  //    together each corresponding pair of unsigned 8-bit int bytes in the two
+  //    input DWORDs, and sums the results into the 32-bit unsigned integer
+  //    accumulator.
+
+  auto loc = callExpr->getExprLoc();
+  auto range = callExpr->getSourceRange();
+  assert(op == hlsl::IntrinsicOp::IOP_dot4add_i8packed ||
+         op == hlsl::IntrinsicOp::IOP_dot4add_u8packed);
+
+  // Validate the argument count - if it's wrong, the compiler won't get
+  // here anyway, so an assert should be fine.
+  assert(callExpr->getNumArgs() == 3u);
+
+  // Prepare the three arguments.
+  const Expr *arg0 = callExpr->getArg(0);
+  const Expr *arg1 = callExpr->getArg(1);
+  const Expr *arg2 = callExpr->getArg(2);
+  auto *arg0Instr = doExpr(arg0);
+  auto *arg1Instr = doExpr(arg1);
+  auto *arg2Instr = doExpr(arg2);
+
+  // Prepare the array inputs for createSpirvIntrInstExt below.
+  // Need to use this function because the OpSDot/OpUDot operations require
+  // two capabilities and an extension to be declared in the module.
+  SpirvInstruction *operands[]{arg0Instr, arg1Instr};
+  uint32_t capabilities[]{
+      uint32_t(spv::Capability::DotProduct),
+      uint32_t(spv::Capability::DotProductInput4x8BitPacked)};
+  llvm::StringRef extensions[]{"SPV_KHR_integer_dot_product"};
+  llvm::StringRef instSet = "";
+
+  // Pick the opcode based on the instruction.
+  const bool isSigned = op == hlsl::IntrinsicOp::IOP_dot4add_i8packed;
+  const spv::Op spirvOp = isSigned ? spv::Op::OpSDot : spv::Op::OpUDot;
+
+  const auto returnType = callExpr->getType();
+
+  // Create the dot product instruction.
+  auto *dotResult =
+      spvBuilder.createSpirvIntrInstExt(uint32_t(spirvOp), returnType, operands,
+                                        extensions, instSet, capabilities, loc);
+
+  // Create and return the integer addition instruction.
+  return spvBuilder.createBinaryOp(spv::Op::OpIAdd, returnType, dotResult,
+                                   arg2Instr, loc, range);
+}
+
 SpirvInstruction *
 SpirvEmitter::processIntrinsic8BitPack(const CallExpr *callExpr,
                                        hlsl::IntrinsicOp op) {
@@ -12517,19 +12701,12 @@ void SpirvEmitter::processPixelShaderAttributes(const FunctionDecl *decl) {
 }
 
 void SpirvEmitter::processComputeShaderAttributes(const FunctionDecl *decl) {
-  // If not explicitly specified, x, y, and z should be defaulted to 1.
-  uint32_t x = 1, y = 1, z = 1;
+  auto *numThreadsAttr = decl->getAttr<HLSLNumThreadsAttr>();
+  assert(numThreadsAttr && "thread group size missing from entry-point");
 
-  if (auto *numThreadsAttr = decl->getAttr<HLSLNumThreadsAttr>()) {
-    x = static_cast<uint32_t>(numThreadsAttr->getX());
-    y = static_cast<uint32_t>(numThreadsAttr->getY());
-    z = static_cast<uint32_t>(numThreadsAttr->getZ());
-  } else {
-    emitError("thread group size [numthreads(x,y,z)] is missing from the "
-              "entry-point function",
-              decl->getLocation());
-    return;
-  }
+  uint32_t x = static_cast<uint32_t>(numThreadsAttr->getX());
+  uint32_t y = static_cast<uint32_t>(numThreadsAttr->getY());
+  uint32_t z = static_cast<uint32_t>(numThreadsAttr->getZ());
 
   spvBuilder.addExecutionMode(entryFunction, spv::ExecutionMode::LocalSize,
                               {x, y, z}, decl->getLocation());
@@ -13232,25 +13409,6 @@ bool SpirvEmitter::processHSEntryPointOutputAndPCF(
   const QualType pcfRetType = patchConstFunc->getReturnType();
 
   std::vector<SpirvInstruction *> pcfParams;
-
-  // A lambda for creating a stage input variable and its associated temporary
-  // variable for function call. Also initializes the temporary variable using
-  // the contents loaded from the stage input variable. Returns the <result-id>
-  // of the temporary variable.
-  const auto createParmVarAndInitFromStageInputVar =
-      [this](const ParmVarDecl *param) {
-        const QualType type = param->getType();
-        std::string tempVarName = "param.var." + param->getNameAsString();
-        auto paramLoc = param->getLocation();
-        auto *tempVar = spvBuilder.addFnVar(
-            type, paramLoc, tempVarName, param->hasAttr<HLSLPreciseAttr>(),
-            param->hasAttr<HLSLNoInterpolationAttr>());
-        SpirvInstruction *loadedValue = nullptr;
-        declIdMapper.createStageInputVar(param, &loadedValue, /*forPCF*/ true);
-        spvBuilder.createStore(tempVar, loadedValue, paramLoc);
-        return tempVar;
-      };
-
   for (const auto *param : patchConstFunc->parameters()) {
     // Note: According to the HLSL reference, the PCF takes an InputPatch of
     // ControlPoints as well as the PatchID (PrimitiveID). This does not
@@ -13262,14 +13420,19 @@ bool SpirvEmitter::processHSEntryPointOutputAndPCF(
       pcfParams.push_back(hullMainOutputPatch);
     } else if (hasSemantic(param, hlsl::DXIL::SemanticKind::PrimitiveID)) {
       if (!primitiveId) {
-        primitiveId = createParmVarAndInitFromStageInputVar(param);
+        primitiveId = createPCFParmVarAndInitFromStageInputVar(param);
       }
       pcfParams.push_back(primitiveId);
     } else if (hasSemantic(param, hlsl::DXIL::SemanticKind::ViewID)) {
       if (!viewId) {
-        viewId = createParmVarAndInitFromStageInputVar(param);
+        viewId = createPCFParmVarAndInitFromStageInputVar(param);
       }
       pcfParams.push_back(viewId);
+    } else if (param->hasAttr<HLSLOutAttr>()) {
+      // Create a temporary function scope variable to pass to the PCF function
+      // for the output. The value of this variable should be copied to an
+      // output variable for the param after the function call.
+      pcfParams.push_back(createFunctionScopeTempFromParameter(param));
     } else {
       emitError("patch constant function parameter '%0' unknown",
                 param->getLocation())
@@ -13281,6 +13444,18 @@ bool SpirvEmitter::processHSEntryPointOutputAndPCF(
   if (!declIdMapper.createStageOutputVar(patchConstFunc, pcfResultId,
                                          /*forPCF*/ true))
     return false;
+
+  // Traverse all of the parameters for the patch constant function and copy out
+  // all of the output variables.
+  for (uint32_t idx = 0; idx < patchConstFunc->parameters().size(); idx++) {
+    const auto *param = patchConstFunc->parameters()[idx];
+    if (param->hasAttr<HLSLOutAttr>()) {
+      SpirvInstruction *pcfParam = pcfParams[idx];
+      SpirvInstruction *loadedValue = spvBuilder.createLoad(
+          pcfParam->getAstResultType(), pcfParam, param->getLocation());
+      declIdMapper.createStageOutputVar(param, loadedValue, /*forPCF*/ true);
+    }
+  }
 
   spvBuilder.createBranch(mergeBB, locEnd);
   spvBuilder.addSuccessor(mergeBB);
@@ -13312,7 +13487,7 @@ bool SpirvEmitter::allSwitchCasesAreIntegerLiterals(const Stmt *root) {
 
 void SpirvEmitter::discoverAllCaseStmtInSwitchStmt(
     const Stmt *root, SpirvBasicBlock **defaultBB,
-    std::vector<std::pair<uint32_t, SpirvBasicBlock *>> *targets) {
+    std::vector<std::pair<llvm::APInt, SpirvBasicBlock *>> *targets) {
   if (!root)
     return;
 
@@ -13332,7 +13507,7 @@ void SpirvEmitter::discoverAllCaseStmtInSwitchStmt(
   }
 
   std::string caseLabel;
-  uint32_t caseValue = 0;
+  llvm::APInt caseValue;
   if (defaultStmt) {
     // This is the default branch.
     caseLabel = "switch.default";
@@ -13342,15 +13517,10 @@ void SpirvEmitter::discoverAllCaseStmtInSwitchStmt(
     // case <literal_integer>: {...; break;}
     const Expr *caseExpr = caseStmt->getLHS();
     assert(caseExpr && caseExpr->isEvaluatable(astContext));
-    auto bitWidth = astContext.getIntWidth(caseExpr->getType());
-    if (bitWidth != 32)
-      emitError(
-          "non-32bit integer case value in switch statement unimplemented",
-          caseExpr->getExprLoc());
     Expr::EvalResult evalResult;
     caseExpr->EvaluateAsRValue(evalResult, astContext);
-    const int64_t value = evalResult.Val.getInt().getSExtValue();
-    caseValue = static_cast<uint32_t>(value);
+    caseValue = evalResult.Val.getInt();
+    const int64_t value = caseValue.getSExtValue();
     caseLabel = "switch." + std::string(value < 0 ? "n" : "") +
                 llvm::itostr(std::abs(value));
   }
@@ -13425,6 +13595,13 @@ void SpirvEmitter::processSwitchStmtUsingSpirvOpSwitch(
     doDeclStmt(condVarDeclStmt);
 
   auto *cond = switchStmt->getCond();
+  if (llvm::dyn_cast<IntegerLiteral>(cond)) {
+    emitError(
+        "integer literal selectors in switch statements not yet implemented",
+        cond->getLocStart());
+    return;
+  }
+
   auto *selector = doExpr(cond);
 
   // We need a merge block regardless of the number of switch cases.
@@ -13437,7 +13614,7 @@ void SpirvEmitter::processSwitchStmtUsingSpirvOpSwitch(
   auto *defaultBB = mergeBB;
 
   // (literal, labelId) pairs to pass to the OpSwitch instruction.
-  std::vector<std::pair<uint32_t, SpirvBasicBlock *>> targets;
+  std::vector<std::pair<llvm::APInt, SpirvBasicBlock *>> targets;
   discoverAllCaseStmtInSwitchStmt(switchStmt->getBody(), &defaultBB, &targets);
 
   // Create the OpSelectionMerge and OpSwitch.
@@ -13897,11 +14074,12 @@ SpirvEmitter::processRayQueryIntrinsics(const CXXMemberCallExpr *expr,
   return retVal;
 }
 
-SpirvInstruction *SpirvEmitter::createSpirvIntrInstExt(
-    llvm::ArrayRef<const Attr *> attrs, QualType retType,
-    const llvm::SmallVectorImpl<SpirvInstruction *> &spvArgs, bool isInstr,
-    SourceLocation loc) {
-  llvm::SmallVector<uint32_t, 2> capbilities;
+SpirvInstruction *
+SpirvEmitter::createSpirvIntrInstExt(llvm::ArrayRef<const Attr *> attrs,
+                                     QualType retType,
+                                     llvm::ArrayRef<SpirvInstruction *> spvArgs,
+                                     bool isInstr, SourceLocation loc) {
+  llvm::SmallVector<uint32_t, 2> capabilities;
   llvm::SmallVector<llvm::StringRef, 2> extensions;
   llvm::StringRef instSet = "";
   // For [[vk::ext_type_def]], we use dummy OpNop with no semantic meaning,
@@ -13909,7 +14087,7 @@ SpirvInstruction *SpirvEmitter::createSpirvIntrInstExt(
   uint32_t op = static_cast<unsigned>(spv::Op::OpNop);
   for (auto &attr : attrs) {
     if (auto capAttr = dyn_cast<VKCapabilityExtAttr>(attr)) {
-      capbilities.push_back(capAttr->getCapability());
+      capabilities.push_back(capAttr->getCapability());
     } else if (auto extAttr = dyn_cast<VKExtensionExtAttr>(attr)) {
       extensions.push_back(extAttr->getName());
     }
@@ -13922,7 +14100,7 @@ SpirvInstruction *SpirvEmitter::createSpirvIntrInstExt(
   }
 
   SpirvInstruction *retVal = spvBuilder.createSpirvIntrInstExt(
-      op, retType, spvArgs, extensions, instSet, capbilities, loc);
+      op, retType, spvArgs, extensions, instSet, capabilities, loc);
   if (!retVal)
     return nullptr;
 
@@ -14237,6 +14415,31 @@ void SpirvEmitter::addDerivativeGroupExecutionMode() {
   }
 
   spvBuilder.addExecutionMode(entryFunction, em, {}, SourceLocation());
+}
+
+SpirvVariable *SpirvEmitter::createPCFParmVarAndInitFromStageInputVar(
+    const ParmVarDecl *param) {
+  const QualType type = param->getType();
+  std::string tempVarName = "param.var." + param->getNameAsString();
+  auto paramLoc = param->getLocation();
+  auto *tempVar = spvBuilder.addFnVar(
+      type, paramLoc, tempVarName, param->hasAttr<HLSLPreciseAttr>(),
+      param->hasAttr<HLSLNoInterpolationAttr>());
+  SpirvInstruction *loadedValue = nullptr;
+  declIdMapper.createStageInputVar(param, &loadedValue, /*forPCF*/ true);
+  spvBuilder.createStore(tempVar, loadedValue, paramLoc);
+  return tempVar;
+}
+
+SpirvVariable *
+SpirvEmitter::createFunctionScopeTempFromParameter(const ParmVarDecl *param) {
+  const QualType type = param->getType();
+  std::string tempVarName = "param.var." + param->getNameAsString();
+  auto paramLoc = param->getLocation();
+  auto *tempVar = spvBuilder.addFnVar(
+      type, paramLoc, tempVarName, param->hasAttr<HLSLPreciseAttr>(),
+      param->hasAttr<HLSLNoInterpolationAttr>());
+  return tempVar;
 }
 
 bool SpirvEmitter::spirvToolsTrimCapabilities(std::vector<uint32_t> *mod,

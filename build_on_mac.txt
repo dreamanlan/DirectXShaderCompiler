@@ -1,0 +1,42 @@
+1、在源码根目录DirectXShaderCompiler的同级建立一个目录 dxcbuild
+2、拷备 builddxc.sh 到源码根目录的上一级目录
+3、sh builddxc.sh
+4、编译好的 dxc 在 dxcbuild/bin 目录下
+
+注意：mac 版本源码目前存在一些编译错误，注释掉出错的代码即可（不影响 dxr 的功能，主要是与 spir-v 有关的代码）
+
+参考文档:
+================================================================================================================================================================================
+Directxshader compiler mac编译
+
+1 前置条件
+
+Please make sure you have the following resources before building:
+
+Git
+Python. Version 3.x is required.
+Ninja (Optional CMake generator)
+Either of gcc/g++ or clang/clang++ compilers. Minimum supported version:
+GCC version 5.5 or higher.
+Clang version 3.8 or higher.
+
+2 clone源码
+
+git clone --recursive GitHub - microsoft/DirectXShaderCompiler: This repo hosts the source for the DirectX Shader Compiler which is based on LLVM/Clang. 注意需要递归clone依赖库
+
+3 编译
+
+cmake ../ -G Ninja -DCMAKE_BUILD_TYPE=Release -C ../cmake/caches/PredefinedParams.cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+
+ninja 编译源码
+
+4 编译后结果
+
+<dxc-build-dir>/bin/dxc
+
+5 使用
+
+./bin/dxc -help
+
+./bin/dxc -T <target> -E <entry-point-name> <input-hlsl-file>
+================================================================================================================================================================================

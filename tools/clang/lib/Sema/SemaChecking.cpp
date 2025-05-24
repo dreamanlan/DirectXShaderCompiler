@@ -522,7 +522,6 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
 
     TheCall->setType(Context.VoidPtrTy);
     break;
-
   }
 
   // Since the target specific builtins for each arch overlap, only check those
@@ -1426,6 +1425,8 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
   else
     CheckMemaccessArguments(TheCall, CMId, FnInfo);
 #endif // HLSL Change Ends
+
+  CheckHLSLFunctionCall(FDecl, TheCall, Proto); // HLSL Change
 
   return false;
 }
@@ -6771,8 +6772,8 @@ static void AnalyzeAssignment(Sema &S, BinaryOperator *E) {
   // Just recurse on the LHS.
   AnalyzeImplicitConversions(S, E->getLHS(), E->getOperatorLoc());
 
-  S.DiagnoseGloballyCoherentMismatch(E->getRHS(), E->getLHS()->getType(),
-                                     E->getOperatorLoc());
+  S.DiagnoseCoherenceMismatch(E->getRHS(), E->getLHS()->getType(),
+                              E->getOperatorLoc());
 
   // We want to recurse on the RHS as normal unless we're assigning to
   // a bitfield.
@@ -6886,7 +6887,7 @@ void CheckImplicitArgumentConversions(Sema &S, CallExpr *TheCall,
          ++ArgIdx, ++ParmIdx) {
       ParmVarDecl *PD = FD->getParamDecl(ParmIdx);
       Expr *CurrA = TheCall->getArg(ArgIdx);
-      S.DiagnoseGloballyCoherentMismatch(CurrA, PD->getType(), CC);
+      S.DiagnoseCoherenceMismatch(CurrA, PD->getType(), CC);
     }
   }
   // HLSL CHange End
@@ -7134,12 +7135,15 @@ void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
     if (TargetBT && TargetBT->isFloatingPoint()) {
       // ...then warn if we're dropping FP rank.
 
-      // HLSL Change - unless source is literal float
+      // HLSL Change Begin - Warn on both promotions and conversions.
+      // Don't warn on Literal float.
       if (SourceBT->getKind() == BuiltinType::LitFloat)
         return;
+      int Order = S.getASTContext().getFloatingTypeOrder(QualType(SourceBT, 0),
+                                                         QualType(TargetBT, 0));
 
       // Builtin FP kinds are ordered by increasing FP rank.
-      if (SourceBT->getKind() > TargetBT->getKind()) {
+      if (Order > 0) {
         // Don't warn about float constants that are precisely
         // representable in the target type.
         Expr::EvalResult result;
@@ -7155,7 +7159,10 @@ void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
           return;
 
         DiagnoseImpCast(S, E, T, CC, diag::warn_impcast_float_precision);
+      } else if (Order < 0) {
+        DiagnoseImpCast(S, E, T, CC, diag::warn_impcast_double_promotion);
       }
+      // HLSL Change End
       return;
     }
 

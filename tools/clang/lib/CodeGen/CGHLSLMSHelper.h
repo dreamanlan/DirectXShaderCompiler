@@ -37,7 +37,6 @@ template <typename T, unsigned N> class SmallVector;
 namespace hlsl {
 class HLModule;
 struct DxilResourceProperties;
-struct DxilWaveMatrixProperties;
 struct DxilFunctionProps;
 class DxilFieldAnnotation;
 enum class IntrinsicOp;
@@ -160,15 +159,11 @@ struct DxilObjectProperties {
   bool AddResource(llvm::Value *V, const hlsl::DxilResourceProperties &RP);
   bool IsResource(llvm::Value *V);
   hlsl::DxilResourceProperties GetResource(llvm::Value *V);
-  void updateGLC(llvm::Value *V);
-
-  bool AddWaveMatrix(llvm::Value *V, const hlsl::DxilWaveMatrixProperties &WMP);
-  bool IsWaveMatrix(llvm::Value *V);
-  hlsl::DxilWaveMatrixProperties GetWaveMatrix(llvm::Value *V);
+  void updateCoherence(llvm::Value *V, bool updateGloballyCoherent,
+                       bool updateReorderCoherent);
 
   // MapVector for deterministic iteration order.
   llvm::MapVector<llvm::Value *, hlsl::DxilResourceProperties> resMap;
-  llvm::MapVector<llvm::Value *, hlsl::DxilWaveMatrixProperties> waveMatMap;
 };
 
 void CopyAndAnnotateResourceArgument(llvm::Value *Src, llvm::Value *Dest,

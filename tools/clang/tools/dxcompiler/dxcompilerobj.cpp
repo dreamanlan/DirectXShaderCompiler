@@ -35,6 +35,7 @@
 #include "dxc/DxilContainer/DxilContainerAssembler.h"
 #include "dxc/DxilRootSignature/DxilRootSignature.h"
 #include "dxc/HLSL/HLSLExtensionsCodegenHelper.h"
+#include "dxc/Support/Path.h"
 #include "dxc/Support/WinIncludes.h"
 #include "dxc/Support/dxcfilesystem.h"
 #include "dxc/dxcapi.internal.h"
@@ -62,6 +63,7 @@
 // SPIRV change starts
 #ifdef ENABLE_SPIRV_CODEGEN
 #include "clang/SPIRV/EmitSpirvAction.h"
+#include "clang/SPIRV/FeatureManager.h"
 #endif
 // SPIRV change ends
 
@@ -69,23 +71,16 @@
 #include "clang/Basic/Version.h"
 #endif // SUPPORT_QUERY_GIT_COMMIT_INFO
 
+#ifdef ENABLE_METAL_CODEGEN
+#include "metal_irconverter.h"
+#endif
+
 #define CP_UTF16 1200
 
 using namespace llvm;
 using namespace clang;
 using namespace hlsl;
 using std::string;
-
-// This declaration is used for the locally-linked validator.
-HRESULT CreateDxcValidator(REFIID riid, LPVOID *ppv);
-
-// This internal call allows the validator to avoid having to re-deserialize
-// the module. It trusts that the caller didn't make any changes and is
-// kept internal because the layout of the module class may change based
-// on changes across modules, or picking a different compiler version or CRT.
-HRESULT RunInternalValidator(IDxcValidator *pValidator, llvm::Module *pModule,
-                             llvm::Module *pDebugModule, IDxcBlob *pShader,
-                             UINT32 Flags, IDxcOperationResult **ppResult);
 
 static bool ShouldBeCopiedIntoPDB(UINT32 FourCC) {
   switch (FourCC) {
@@ -441,8 +436,8 @@ static void CreateDefineStrings(const DxcDefine *pDefines, UINT defineCount,
                                 std::vector<std::string> &defines) {
   // Not very efficient but also not very important.
   for (UINT32 i = 0; i < defineCount; i++) {
-    CW2A utf8Name(pDefines[i].Name, CP_UTF8);
-    CW2A utf8Value(pDefines[i].Value, CP_UTF8);
+    CW2A utf8Name(pDefines[i].Name);
+    CW2A utf8Value(pDefines[i].Value);
     std::string val(utf8Name.m_psz);
     val += "=";
     val += (pDefines[i].Value) ? utf8Value.m_psz : "1";
@@ -592,15 +587,16 @@ public:
       // Formerly API values.
       const char *pUtf8SourceName =
           opts.InputFile.empty() ? "hlsl.hlsl" : opts.InputFile.data();
-      CA2W pWideSourceName(pUtf8SourceName, CP_UTF8);
+
+      CA2W pWideSourceName(pUtf8SourceName);
       const char *pUtf8EntryPoint =
           opts.EntryPoint.empty() ? "main" : opts.EntryPoint.data();
       const char *pUtf8OutputName = isPreprocessing ? opts.Preprocess.data()
                                     : opts.OutputObject.empty()
                                         ? ""
                                         : opts.OutputObject.data();
-      CA2W pWideOutputName(
-          isPreprocessing ? opts.Preprocess.data() : pUtf8OutputName, CP_UTF8);
+      CA2W pWideOutputName(isPreprocessing ? opts.Preprocess.data()
+                                           : pUtf8OutputName);
       LPCWSTR pObjectName = (!isPreprocessing && opts.OutputObject.empty())
                                 ? nullptr
                                 : pWideOutputName.m_psz;
@@ -613,13 +609,20 @@ public:
                               nullptr, &pSourceEncoding));
 
 #ifdef ENABLE_SPIRV_CODEGEN
-      // We want to embed the preprocessed source code in the final SPIR-V if
-      // debug information is enabled. Therefore, we invoke Preprocess() here
+      // We want to embed the original source code in the final SPIR-V if
+      // debug information is enabled. But the compiled source requires
+      // pre-seeding with #line directives. We invoke Preprocess() here
       // first for such case. Then we invoke the compilation process over the
-      // preprocessed source code, so that line numbers are consistent with the
-      // embedded source code.
-      if (!isPreprocessing && opts.GenSPIRV && opts.DebugInfo &&
-          !opts.SpirvOptions.debugInfoVulkan) {
+      // preprocessed source code.
+      if (!isPreprocessing && opts.GenSPIRV && opts.DebugInfo) {
+        // Convert source code encoding
+        CComPtr<IDxcBlobUtf8> pOrigUtf8Source;
+        IFC(hlsl::DxcGetBlobAsUtf8(pSourceEncoding, m_pMalloc,
+                                   &pOrigUtf8Source));
+        opts.SpirvOptions.origSource.assign(
+            static_cast<const char *>(pOrigUtf8Source->GetStringPointer()),
+            pOrigUtf8Source->GetStringLength());
+
         CComPtr<IDxcResult> pSrcCodeResult;
         std::vector<LPCWSTR> PreprocessArgs;
         PreprocessArgs.reserve(argCount + 1);
@@ -719,6 +722,7 @@ public:
       bool validateRootSigContainer = false;
 
       if (isPreprocessing) {
+        TimeTraceScope TimeScope("PreprocessAction", StringRef(""));
         // These settings are back-compatible with fxc.
         clang::PreprocessorOutputOptions &PPOutOpts =
             compiler.getPreprocessorOutputOpts();
@@ -818,6 +822,10 @@ public:
         }
         compiler.getLangOpts().IsHLSLLibrary = opts.IsLibraryProfile();
 
+        if (compiler.getLangOpts().IsHLSLLibrary && opts.GenMetal)
+          return ErrorWithString("Shader libraries unsupported in Metal (yet)",
+                                 riid, ppResult);
+
         // Clear entry function if library target
         if (compiler.getLangOpts().IsHLSLLibrary)
           compiler.getLangOpts().HLSLEntryFunction =
@@ -857,7 +865,10 @@ public:
                 compiler.getCodeGenOpts().HLSLValidatorMinorVer, 1, 5) >= 0;
       }
 
+      compiler.getTarget().adjust(compiler.getLangOpts());
+
       if (opts.AstDump) {
+        TimeTraceScope TimeScope("DumpAST", StringRef(""));
         clang::ASTDumpAction dumpAction;
         // Consider - ASTDumpFilter, ASTDumpLookups
         compiler.getFrontendOpts().ASTDumpDecls = true;
@@ -867,6 +878,7 @@ public:
         dumpAction.EndSourceFile();
         outStream.flush();
       } else if (opts.DumpDependencies) {
+        TimeTraceScope TimeScope("DumpDependencies", StringRef(""));
         auto dependencyCollector = std::make_shared<DependencyCollector>();
         compiler.addDependencyCollector(dependencyCollector);
         compiler.createPreprocessor(clang::TranslationUnitKind::TU_Complete);
@@ -943,6 +955,7 @@ public:
         opts.SpirvOptions.codeGenHighLevel = opts.CodeGenHighLevel;
         opts.SpirvOptions.defaultRowMajor = opts.DefaultRowMajor;
         opts.SpirvOptions.disableValidation = opts.DisableValidation;
+        opts.SpirvOptions.IEEEStrict = opts.IEEEStrict;
         // Save a string representation of command line options and
         // input file name.
         if (opts.DebugInfo) {
@@ -968,6 +981,7 @@ public:
         EmitBCAction action(&llvmContext);
         FrontendInputFile file(pUtf8SourceName, IK_HLSL);
         bool compileOK;
+        TimeTraceScope TimeScope("Compile Action", StringRef(""));
         if (action.BeginSourceFile(compiler, file)) {
           action.Execute();
           action.EndSourceFile();
@@ -1022,6 +1036,7 @@ public:
         // Do not create a container when there is only a a high-level
         // representation in the module.
         if (compileOK && !opts.CodeGenHighLevel) {
+          TimeTraceScope TimeScope("AssembleAndWriteContainer", StringRef(""));
           HRESULT valHR = S_OK;
           CComPtr<AbstractMemoryStream> pRootSigStream;
           IFT(CreateMemoryStream(DxcGetThreadMallocNoRef(),
@@ -1037,7 +1052,7 @@ public:
 
           dxcutil::AssembleInputs inputs(
               std::move(serializeModule), pOutputBlob, m_pMalloc,
-              SerializeFlags, pOutputStream, opts.GetPDBName(),
+              SerializeFlags, pOutputStream, 0, opts.GetPDBName(),
               &compiler.getDiagnostics(), &ShaderHashContent, pReflectionStream,
               pRootSigStream, pRootSignatureBlob, pPrivateBlob,
               opts.SelectValidator);
@@ -1105,7 +1120,86 @@ public:
                                               &pHashBlob));
             IFT(pResult->SetOutputObject(DXC_OUT_SHADER_HASH, pHashBlob));
           } // SUCCEEDED(valHR)
-        }   // compileOK && !opts.CodeGenHighLevel
+#ifdef ENABLE_METAL_CODEGEN
+          // This is a bit hacky because we don't currently have a good way to
+          // disassemble AIR.
+          if (opts.GenMetal && produceFullContainer &&
+              !opts.OutputObject.empty()) {
+            IRCompiler *MetalCompiler = IRCompilerCreate();
+            IRCompilerSetEntryPointName(
+                MetalCompiler,
+                compiler.getCodeGenOpts().HLSLEntryFunction.c_str());
+
+            IRObject *DXILObj = IRObjectCreateFromDXIL(
+                static_cast<const uint8_t *>(pOutputBlob->GetBufferPointer()),
+                pOutputBlob->GetBufferSize(), IRBytecodeOwnershipNone);
+
+            // Compile DXIL to Metal IR:
+            IRError *Error = nullptr;
+            IRObject *AIR = IRCompilerAllocCompileAndLink(MetalCompiler, NULL,
+                                                          DXILObj, &Error);
+
+            if (!AIR) {
+              IRObjectDestroy(DXILObj);
+              IRCompilerDestroy(MetalCompiler);
+              IRErrorDestroy(Error);
+              return ErrorWithString(
+                  "Error occurred in Metal Shader Conversion", riid, ppResult);
+            }
+
+            IRMetalLibBinary *MetalLib = IRMetalLibBinaryCreate();
+            IRShaderStage Stage = IRShaderStageInvalid;
+            const ShaderModel *SM = hlsl::ShaderModel::GetByName(
+                compiler.getLangOpts().HLSLProfile);
+            switch (SM->GetKind()) {
+            case DXIL::ShaderKind::Vertex:
+              Stage = IRShaderStageVertex;
+              break;
+            case DXIL::ShaderKind::Pixel:
+              Stage = IRShaderStageFragment;
+              break;
+            case DXIL::ShaderKind::Hull:
+              Stage = IRShaderStageHull;
+              break;
+            case DXIL::ShaderKind::Domain:
+              Stage = IRShaderStageDomain;
+              break;
+            case DXIL::ShaderKind::Mesh:
+              Stage = IRShaderStageMesh;
+              break;
+            case DXIL::ShaderKind::Amplification:
+              Stage = IRShaderStageAmplification;
+              break;
+            case DXIL::ShaderKind::Geometry:
+              Stage = IRShaderStageGeometry;
+              break;
+            case DXIL::ShaderKind::Compute:
+              Stage = IRShaderStageCompute;
+              break;
+            }
+            assert(Stage != IRShaderStageInvalid &&
+                   "Library targets not supported for Metal (yet).");
+            IRObjectGetMetalLibBinary(AIR, Stage, MetalLib);
+            size_t MetalLibSize = IRMetalLibGetBytecodeSize(MetalLib);
+            std::unique_ptr<uint8_t[]> MetalLibBytes =
+                std::unique_ptr<uint8_t[]>(new uint8_t[MetalLibSize]);
+            IRMetalLibGetBytecode(MetalLib, MetalLibBytes.get());
+
+            // Store the metallib to custom format or disk, or use to create a
+            // MTLLibrary.
+
+            CComPtr<IDxcBlob> MetalBlob;
+            IFT(hlsl::DxcCreateBlobOnHeapCopy(
+                MetalLibBytes.get(), (uint32_t)MetalLibSize, &MetalBlob));
+            std::swap(pOutputBlob, MetalBlob);
+
+            IRMetalLibBinaryDestroy(MetalLib);
+            IRObjectDestroy(DXILObj);
+            IRObjectDestroy(AIR);
+            IRCompilerDestroy(MetalCompiler);
+          }
+#endif
+        } // compileOK && !opts.CodeGenHighLevel
       }
 
       std::string remarks;
@@ -1347,6 +1441,18 @@ public:
     compiler.createDiagnostics(diagPrinter, false);
     // don't output warning to stderr/file if "/no-warnings" is present.
     compiler.getDiagnostics().setIgnoreAllWarnings(!Opts.OutputWarnings);
+    if (Opts.DiagnosticsFormat.equals_lower("msvc") ||
+        Opts.DiagnosticsFormat.equals_lower("msvc-fallback"))
+      compiler.getDiagnosticOpts().setFormat(DiagnosticOptions::MSVC);
+    else if (Opts.DiagnosticsFormat.equals_lower("vi"))
+      compiler.getDiagnosticOpts().setFormat(DiagnosticOptions::Vi);
+    else if (!Opts.DiagnosticsFormat.equals_lower("clang")) {
+      auto const ID = compiler.getDiagnostics().getCustomDiagID(
+          clang::DiagnosticsEngine::Warning,
+          "invalid option %0 to -fdiagnostics-format: supported values are "
+          "clang, msvc, msvc-fallback, and vi");
+      compiler.getDiagnostics().Report(ID) << Opts.DiagnosticsFormat;
+    }
     compiler.createFileManager();
     compiler.createSourceManager(compiler.getFileManager());
     compiler.setTarget(
@@ -1426,6 +1532,13 @@ public:
         Opts.EnablePayloadQualifiers;
     compiler.getLangOpts().HLSLProfile = compiler.getCodeGenOpts().HLSLProfile =
         Opts.TargetProfile;
+    const ShaderModel *SM = hlsl::ShaderModel::GetByName(
+        compiler.getLangOpts().HLSLProfile.c_str());
+    if (SM->IsSM69Plus())
+      compiler.getLangOpts().MaxHLSLVectorLength = DXIL::kSM69MaxVectorLength;
+    else
+      compiler.getLangOpts().MaxHLSLVectorLength =
+          DXIL::kDefaultMaxVectorLength;
 
     // Enable dumping implicit top level decls either if it was specifically
     // requested or if we are not dumping the ast from the command line. That
@@ -1437,6 +1550,22 @@ public:
 // SPIRV change starts
 #ifdef ENABLE_SPIRV_CODEGEN
     compiler.getLangOpts().SPIRV = Opts.GenSPIRV;
+    llvm::Optional<spv_target_env> spirvTargetEnv =
+        spirv::FeatureManager::stringToSpvEnvironment(
+            Opts.SpirvOptions.targetEnv);
+
+    // If we do not have a valid target environment, the error will be handled
+    // later.
+    if (spirvTargetEnv.hasValue()) {
+      VersionTuple spirvVersion =
+          spirv::FeatureManager::getSpirvVersion(spirvTargetEnv.getValue());
+      compiler.getLangOpts().SpirvMajorVersion = spirvVersion.getMajor();
+      assert(spirvVersion.getMinor().hasValue() &&
+             "There must always be a major and minor version number when "
+             "targeting SPIR-V.");
+      compiler.getLangOpts().SpirvMinorVersion =
+          spirvVersion.getMinor().getValue();
+    }
 #endif
     // SPIRV change ends
 
@@ -1483,8 +1612,6 @@ public:
     compiler.getCodeGenOpts().HLSLOverrideSemDefs = Opts.OverrideSemDefs;
     compiler.getCodeGenOpts().HLSLPreferControlFlow = Opts.PreferFlowControl;
     compiler.getCodeGenOpts().HLSLAvoidControlFlow = Opts.AvoidFlowControl;
-    compiler.getCodeGenOpts().HLSLNotUseLegacyCBufLoad =
-        Opts.NotUseLegacyCBufLoad;
     compiler.getCodeGenOpts().HLSLLegacyResourceReservation =
         Opts.LegacyResourceReservation;
     compiler.getCodeGenOpts().HLSLDefines = defines;
@@ -1783,7 +1910,7 @@ HRESULT DxcCompilerAdapter::WrapCompile(
     dxcutil::ReadOptsAndValidate(mainArgs, opts, pOutputStream,
                                  &pOperationResult, finished);
     if (!opts.TimeTrace.empty())
-      llvm::timeTraceProfilerInitialize();
+      llvm::timeTraceProfilerInitialize(opts.TimeTraceGranularity);
     if (finished) {
       IFT(pOperationResult->QueryInterface(ppResult));
       return S_OK;

@@ -238,17 +238,10 @@ public:
 
   /// \brief Creates an operation with the given OpGroupNonUniform* SPIR-V
   /// opcode.
-  SpirvNonUniformElect *createGroupNonUniformElect(spv::Op op,
-                                                   QualType resultType,
-                                                   spv::Scope execScope,
-                                                   SourceLocation);
-  SpirvNonUniformUnaryOp *createGroupNonUniformUnaryOp(
-      SourceLocation, spv::Op op, QualType resultType, spv::Scope execScope,
-      SpirvInstruction *operand,
+  SpirvGroupNonUniformOp *createGroupNonUniformOp(
+      spv::Op op, QualType resultType, llvm::Optional<spv::Scope> execScope,
+      llvm::ArrayRef<SpirvInstruction *> operands, SourceLocation,
       llvm::Optional<spv::GroupOperation> groupOp = llvm::None);
-  SpirvNonUniformBinaryOp *createGroupNonUniformBinaryOp(
-      spv::Op op, QualType resultType, spv::Scope execScope,
-      SpirvInstruction *operand1, SpirvInstruction *operand2, SourceLocation);
 
   /// \brief Creates an atomic instruction with the given parameters and returns
   /// its pointer.
@@ -279,6 +272,14 @@ public:
                                                   SpirvInstruction *coordinate,
                                                   SpirvInstruction *sample,
                                                   SourceLocation);
+
+  /// \brief Creates an OpConverPtrToU SPIR-V instruction with the given
+  /// parameters.
+  SpirvConvertPtrToU *createConvertPtrToU(SpirvInstruction *ptr, QualType type);
+
+  /// \brief Creates an OpConverUToPtr SPIR-V instruction with the given
+  /// parameters.
+  SpirvConvertUToPtr *createConvertUToPtr(SpirvInstruction *val, QualType type);
 
   /// \brief Creates SPIR-V instructions for sampling the given image.
   ///
@@ -322,9 +323,9 @@ public:
       bool doImageFetch, QualType texelType, QualType imageType,
       SpirvInstruction *image, SpirvInstruction *coordinate,
       SpirvInstruction *lod, SpirvInstruction *constOffset,
-      SpirvInstruction *varOffset, SpirvInstruction *constOffsets,
-      SpirvInstruction *sample, SpirvInstruction *residencyCode,
-      SourceLocation loc, SourceRange range = {});
+      SpirvInstruction *constOffsets, SpirvInstruction *sample,
+      SpirvInstruction *residencyCode, SourceLocation loc,
+      SourceRange range = {});
 
   /// \brief Creates SPIR-V instructions for writing to the given image.
   void createImageWrite(QualType imageType, SpirvInstruction *image,
@@ -443,18 +444,18 @@ public:
 
   /// \brief Creates an OpBitFieldInsert SPIR-V instruction for the given
   /// arguments.
-  SpirvBitFieldInsert *
-  createBitFieldInsert(QualType resultType, SpirvInstruction *base,
-                       SpirvInstruction *insert, SpirvInstruction *offset,
-                       SpirvInstruction *count, SourceLocation);
+  SpirvInstruction *createBitFieldInsert(QualType resultType,
+                                         SpirvInstruction *base,
+                                         SpirvInstruction *insert,
+                                         unsigned bitOffset, unsigned bitCount,
+                                         SourceLocation, SourceRange);
 
   /// \brief Creates an OpBitFieldUExtract or OpBitFieldSExtract SPIR-V
   /// instruction for the given arguments.
-  SpirvBitFieldExtract *createBitFieldExtract(QualType resultType,
-                                              SpirvInstruction *base,
-                                              SpirvInstruction *offset,
-                                              SpirvInstruction *count,
-                                              bool isSigned, SourceLocation);
+  SpirvInstruction *createBitFieldExtract(QualType resultType,
+                                          SpirvInstruction *base,
+                                          unsigned bitOffset, unsigned bitCount,
+                                          SourceLocation, SourceRange);
 
   /// \brief Creates an OpEmitVertex instruction.
   void createEmitVertex(SourceLocation, SourceRange range = {});
@@ -611,8 +612,15 @@ public:
   inline SpirvInstruction *addExecutionMode(SpirvFunction *entryPoint,
                                             spv::ExecutionMode em,
                                             llvm::ArrayRef<uint32_t> params,
-                                            SourceLocation,
-                                            bool useIdParams = false);
+                                            SourceLocation);
+
+  /// \brief Adds an execution mode to the module under construction if it does
+  /// not already exist. Return the newly added instruction or the existing
+  /// instruction, if one already exists.
+  inline SpirvInstruction *
+  addExecutionModeId(SpirvFunction *entryPoint, spv::ExecutionMode em,
+                     llvm::ArrayRef<SpirvInstruction *> params,
+                     SourceLocation loc);
 
   /// \brief Adds an OpModuleProcessed instruction to the module under
   /// construction.
@@ -755,6 +763,7 @@ public:
                        llvm::ArrayRef<SpirvConstant *> constituents,
                        bool specConst = false);
   SpirvConstant *getConstantNull(QualType);
+  SpirvUndef *getUndef(QualType);
 
   SpirvString *createString(llvm::StringRef str);
   SpirvString *getString(llvm::StringRef str);
@@ -770,16 +779,14 @@ public:
                                         SpirvInstruction *v);
   SpirvInstruction *getPerVertexStgInput(SpirvInstruction *k);
 
-public:
   std::vector<uint32_t> takeModule();
-
-protected:
-  /// Only friend classes are allowed to add capability/extension to the module
-  /// under construction.
 
   /// \brief Adds the given capability to the module under construction due to
   /// the feature used at the given source location.
   inline void requireCapability(spv::Capability, SourceLocation loc = {});
+
+  /// \brief Returns true if the module requires the given capability.
+  inline bool hasCapability(spv::Capability cap);
 
   /// \brief Adds an extension to the module under construction for translating
   /// the given target at the given source location.
@@ -830,6 +837,20 @@ private:
   SpirvVariable *createCloneVarForFxcCTBuffer(QualType astType,
                                               const SpirvType *spvType,
                                               SpirvInstruction *var);
+
+  /// \brief Emulates OpBitFieldInsert SPIR-V instruction for the given
+  /// arguments.
+  SpirvInstruction *
+  createEmulatedBitFieldInsert(QualType resultType, uint32_t baseTypeBitwidth,
+                               SpirvInstruction *base, SpirvInstruction *insert,
+                               unsigned bitOffset, unsigned bitCount,
+                               SourceLocation, SourceRange);
+
+  SpirvInstruction *
+  createEmulatedBitFieldExtract(QualType resultType, uint32_t baseTypeBitwidth,
+                                SpirvInstruction *base, unsigned bitOffset,
+                                unsigned bitCount, SourceLocation loc,
+                                SourceRange range);
 
 private:
   ASTContext &astContext;
@@ -893,6 +914,11 @@ void SpirvBuilder::requireCapability(spv::Capability cap, SourceLocation loc) {
   }
 }
 
+bool SpirvBuilder::hasCapability(spv::Capability cap) {
+  SpirvCapability capability({}, cap);
+  return mod->hasCapability(capability);
+}
+
 void SpirvBuilder::requireExtension(llvm::StringRef ext, SourceLocation loc) {
   auto *extension = new (context) SpirvExtension(loc, ext);
   if (!mod->addExtension(extension))
@@ -941,17 +967,44 @@ SpirvBuilder::setDebugSource(uint32_t major, uint32_t minor,
 SpirvInstruction *
 SpirvBuilder::addExecutionMode(SpirvFunction *entryPoint, spv::ExecutionMode em,
                                llvm::ArrayRef<uint32_t> params,
-                               SourceLocation loc, bool useIdParams) {
+                               SourceLocation loc) {
   SpirvExecutionMode *mode = nullptr;
-  SpirvExecutionMode *existingInstruction =
+  SpirvExecutionModeBase *existingInstruction =
       mod->findExecutionMode(entryPoint, em);
 
   if (!existingInstruction) {
-    mode = new (context)
-        SpirvExecutionMode(loc, entryPoint, em, params, useIdParams);
+    mode = new (context) SpirvExecutionMode(loc, entryPoint, em, params);
     mod->addExecutionMode(mode);
   } else {
-    mode = existingInstruction;
+    // No execution mode can be used with both OpExecutionMode and
+    // OpExecutionModeId. If this assert is triggered, then either this
+    // `addExecutionModeId` should have been called with `em` or the existing
+    // instruction is wrong.
+    assert(existingInstruction->getKind() ==
+           SpirvInstruction::IK_ExecutionMode);
+    mode = cast<SpirvExecutionMode>(existingInstruction);
+  }
+
+  return mode;
+}
+
+SpirvInstruction *SpirvBuilder::addExecutionModeId(
+    SpirvFunction *entryPoint, spv::ExecutionMode em,
+    llvm::ArrayRef<SpirvInstruction *> params, SourceLocation loc) {
+  SpirvExecutionModeId *mode = nullptr;
+  SpirvExecutionModeBase *existingInstruction =
+      mod->findExecutionMode(entryPoint, em);
+  if (!existingInstruction) {
+    mode = new (context) SpirvExecutionModeId(loc, entryPoint, em, params);
+    mod->addExecutionMode(mode);
+  } else {
+    // No execution mode can be used with both OpExecutionMode and
+    // OpExecutionModeId. If this assert is triggered, then either this
+    // `addExecutionMode` should have been called with `em` or the existing
+    // instruction is wrong.
+    assert(existingInstruction->getKind() ==
+           SpirvInstruction::IK_ExecutionModeId);
+    mode = cast<SpirvExecutionModeId>(existingInstruction);
   }
 
   return mode;

@@ -59,6 +59,7 @@
 
 namespace hlsl {
   struct UnusualAnnotation;
+  class ShaderModel;
 }
 // HLSL Change Ends
 
@@ -3803,10 +3804,15 @@ public:
   bool CheckHLSLUnaryExprOrTypeTraitOperand(QualType ExprType, SourceLocation Loc,
                                             UnaryExprOrTypeTrait ExprKind);
   void DiagnoseHLSLDeclAttr(const Decl *D, const Attr *A);
-  void DiagnoseGloballyCoherentMismatch(const Expr *SrcExpr,
-                                        QualType TargetType,
-                                        SourceLocation Loc);
-  bool DiagnoseHLSLMethodCall(const CXXMethodDecl *MD, SourceLocation Loc);
+  void DiagnoseCoherenceMismatch(const Expr *SrcExpr, QualType TargetType,
+                                 SourceLocation Loc);
+  void CheckHLSLFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
+                             const FunctionProtoType *Proto);
+  void DiagnoseReachableHLSLCall(CallExpr *CE, const hlsl::ShaderModel *SM,
+                                 hlsl::DXIL::ShaderKind EntrySK,
+                                 hlsl::DXIL::NodeLaunchType NodeLaunchTy,
+                                 const FunctionDecl *EntryDecl,
+                                 bool locallyVisited);
   // HLSL Change Ends
 
   bool CheckUnaryExprOrTypeTraitOperand(Expr *E, UnaryExprOrTypeTrait ExprKind);
@@ -8820,6 +8826,8 @@ private:
                         bool AllowOnePastEnd=true, bool IndexNegated=false);
   // HLSL Change Starts - checking array subscript access to vector or matrix member
   void CheckHLSLArrayAccess(const Expr *expr);
+  bool CheckHLSLIntrinsicCall(FunctionDecl *FDecl, CallExpr *TheCall);
+  bool CheckHLSLFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall);
   // HLSL Change ends
   void CheckArrayAccess(const Expr *E);
   // Used to grab the relevant information from a FormatAttr and a
@@ -9099,6 +9107,8 @@ public:
                                 bool isImplicit);
   QualType getHLSLDefaultSpecialization(TemplateDecl *Decl);
   // HLSL Change End - adjust this from T* to T&-like
+
+  void DiagnoseSemanticDecl(hlsl::SemanticDecl *Decl); // HLSL Change
 };
 
 /// \brief RAII object that enters a new expression evaluation context.

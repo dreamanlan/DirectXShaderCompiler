@@ -10936,7 +10936,13 @@ bool Sema::buildOverloadedCallSet(Scope *S, Expr *Fn,
         ULE->getQualifier()->getKind() == NestedNameSpecifier::Namespace &&
         ULE->getQualifier()->getAsNamespace()->getName() == "vk";
 
-    assert((!ULE->getQualifier() || isVkNamespace) && "non-vk qualified name with ADL");
+    bool isDxNamespace =
+        ULE->getQualifier() &&
+        ULE->getQualifier()->getKind() == NestedNameSpecifier::Namespace &&
+        ULE->getQualifier()->getAsNamespace()->getName() == "dx";
+
+    assert((!ULE->getQualifier() || isVkNamespace || isDxNamespace) &&
+           "expected vk or dx qualified name with ADL");
     // HLSL Change Ends
 
     // We don't perform ADL for implicit declarations of builtins.
@@ -11922,10 +11928,6 @@ Sema::BuildCallToMemberFunction(Scope *S, Expr *MemExprE,
       if (Method != FoundDecl.getDecl() && 
                       DiagnoseUseOfDecl(Method, UnresExpr->getNameLoc()))
         return ExprError();
-      // HLSL Change Start - Check method constraints
-      if (DiagnoseHLSLMethodCall(Method, MemExprE->getLocStart()))
-        return ExprError();
-      // HLSL Change End
       break;
 
     case OR_No_Viable_Function:

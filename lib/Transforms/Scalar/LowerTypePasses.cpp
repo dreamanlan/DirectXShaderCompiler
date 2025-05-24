@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "dxc/DXIL/DxilConstants.h"
+#include "dxc/DXIL/DxilModule.h"
 #include "dxc/DXIL/DxilOperations.h"
 #include "dxc/DXIL/DxilUtil.h"
 #include "dxc/HLSL/HLModule.h"
@@ -180,10 +181,12 @@ bool LowerTypePass::runOnModule(Module &M) {
 namespace {
 class DynamicIndexingVectorToArray : public LowerTypePass {
   bool ReplaceAllVectors;
+  bool SupportsVectors;
 
 public:
   explicit DynamicIndexingVectorToArray(bool ReplaceAll = false)
-      : LowerTypePass(ID), ReplaceAllVectors(ReplaceAll) {}
+      : LowerTypePass(ID), ReplaceAllVectors(ReplaceAll),
+        SupportsVectors(false) {}
   static char ID; // Pass identification, replacement for typeid
   void applyOptions(PassOptions O) override;
   void dumpConfig(raw_ostream &OS) override;
@@ -194,6 +197,7 @@ protected:
   Type *lowerType(Type *Ty) override;
   Constant *lowerInitVal(Constant *InitVal, Type *NewTy) override;
   StringRef getGlobalPrefix() override { return ".v"; }
+  void initialize(Module &M) override;
 
 private:
   bool HasVectorDynamicIndexing(Value *V);
@@ -206,6 +210,18 @@ private:
   void ReplaceStaticIndexingOnVector(Value *V);
   void ReplaceAddrSpaceCast(ConstantExpr *CE, Value *A, IRBuilder<> &Builder);
 };
+
+void DynamicIndexingVectorToArray::initialize(Module &M) {
+  // Set vector support according to available Dxil version.
+  // Use HLModule or metadata for version info.
+  // Otherwise retrieve from dxil module or metadata.
+  unsigned Major = 0, Minor = 0;
+  if (M.HasHLModule())
+    M.GetHLModule().GetShaderModel()->GetDxilVersion(Major, Minor);
+  else
+    dxilutil::LoadDxilVersion(&M, Major, Minor);
+  SupportsVectors = (Major == 1 && Minor >= 9);
+}
 
 void DynamicIndexingVectorToArray::applyOptions(PassOptions O) {
   GetPassOptionBool(O, "ReplaceAllVectors", &ReplaceAllVectors,
@@ -306,9 +322,21 @@ void DynamicIndexingVectorToArray::ReplaceStaticIndexingOnVector(Value *V) {
 }
 
 bool DynamicIndexingVectorToArray::needToLower(Value *V) {
+  bool MustReplaceVector = ReplaceAllVectors;
   Type *Ty = V->getType()->getPointerElementType();
-  if (dyn_cast<VectorType>(Ty)) {
-    if (isa<GlobalVariable>(V) || ReplaceAllVectors) {
+
+  if (ArrayType *AT = dyn_cast<ArrayType>(Ty)) {
+    // Array must be replaced even without dynamic indexing to remove vector
+    // type in dxil.
+    MustReplaceVector = true;
+    Ty = dxilutil::GetArrayEltTy(AT);
+  }
+
+  if (isa<VectorType>(Ty)) {
+    // Only needed for 2+ vectors where native vectors unsupported.
+    if (SupportsVectors && Ty->getVectorNumElements() > 1)
+      return false;
+    if (isa<GlobalVariable>(V) || MustReplaceVector) {
       return true;
     }
     // Don't lower local vector which only static indexing.
@@ -319,12 +347,6 @@ bool DynamicIndexingVectorToArray::needToLower(Value *V) {
       ReplaceStaticIndexingOnVector(V);
       return false;
     }
-  } else if (ArrayType *AT = dyn_cast<ArrayType>(Ty)) {
-    // Array must be replaced even without dynamic indexing to remove vector
-    // type in dxil.
-    // TODO: optimize static array index in later pass.
-    Type *EltTy = dxilutil::GetArrayEltTy(AT);
-    return isa<VectorType>(EltTy);
   }
   return false;
 }
@@ -899,146 +921,4 @@ INITIALIZE_PASS(ResourceToHandle, "resource-handle",
 // Public interface to the ResourceToHandle pass
 ModulePass *llvm::createResourceToHandlePass() {
   return new ResourceToHandle();
-}
-
-//===----------------------------------------------------------------------===//
-// Lower WaveMatrix types to single dxil type.
-//===----------------------------------------------------------------------===//
-
-namespace {
-
-class LowerWaveMatType : public LowerTypePass {
-public:
-  explicit LowerWaveMatType() : LowerTypePass(ID) {}
-  static char ID; // Pass identification, replacement for typeid
-protected:
-  bool needToLower(Value *V) override;
-  void lowerUseWithNewValue(Value *V, Value *NewV) override;
-  Type *lowerType(Type *Ty) override;
-  Constant *lowerInitVal(Constant *InitVal, Type *NewTy) override;
-  StringRef getGlobalPrefix() override { return ".res"; }
-  void initialize(Module &M) override;
-
-private:
-  void lowerUserWithNewValue(User *U, Value *V, Value *NewV);
-
-  Type *m_WaveMatTy = nullptr;
-  HLModule *m_pHLM = nullptr;
-};
-
-void LowerWaveMatType::initialize(Module &M) {
-  DXASSERT(M.HasHLModule(), "require HLModule");
-  m_pHLM = &M.GetHLModule();
-  m_WaveMatTy = m_pHLM->GetOP()->GetWaveMatPtrType()->getPointerElementType();
-}
-
-bool LowerWaveMatType::needToLower(Value *V) {
-  return dxilutil::IsHLSLWaveMatrixType(dxilutil::GetArrayEltTy(V->getType()));
-}
-
-Type *LowerWaveMatType::lowerType(Type *Ty) {
-  if (Ty->isPointerTy()) {
-    return PointerType::get(lowerType(Ty->getPointerElementType()),
-                            Ty->getPointerAddressSpace());
-  } else if (Ty->isArrayTy()) {
-    llvm::SmallVector<unsigned, 4> OuterToInnerLengths;
-    Ty = dxilutil::StripArrayTypes(Ty, &OuterToInnerLengths);
-    DXASSERT(dxilutil::IsHLSLWaveMatrixType(Ty),
-             "otherwise, unexpected wave matrix type to lower");
-    return dxilutil::WrapInArrayTypes(m_WaveMatTy, OuterToInnerLengths);
-  } else if (dxilutil::IsHLSLWaveMatrixType(Ty)) {
-    return m_WaveMatTy;
-  }
-  DXASSERT(0, "otherwise, unexpected wave matrix type to lower");
-  return Ty;
-}
-
-Constant *LowerWaveMatType::lowerInitVal(Constant *InitVal, Type *NewTy) {
-  DXASSERT(isa<UndefValue>(InitVal), "wave matrix cannot have real init val");
-  return UndefValue::get(NewTy);
-}
-
-// Rewrite call, replacing argument with new type
-static CallInst *RewriteIntrinsicCallForNewArg(CallInst *CI, Value *OldV,
-                                               Value *NewV,
-                                               Type *NewRet = nullptr) {
-  Function *F = CI->getCalledFunction();
-  HLOpcodeGroup group = GetHLOpcodeGroupByName(F);
-  unsigned opcode = GetHLOpcode(CI);
-  SmallVector<Type *, 8> newArgTypes(CI->getFunctionType()->param_begin(),
-                                     CI->getFunctionType()->param_end());
-  SmallVector<Value *, 8> newArgs(CI->arg_operands());
-
-  for (unsigned i = 1; i < newArgs.size(); i++) {
-    if (newArgs[i] == OldV) {
-      newArgTypes[i] = NewV->getType();
-      newArgs[i] = NewV;
-    }
-  }
-
-  if (NewRet == nullptr)
-    NewRet = CI->getType();
-
-  FunctionType *newFuncTy = FunctionType::get(NewRet, newArgTypes, false);
-  Function *newF =
-      GetOrCreateHLFunction(*F->getParent(), newFuncTy, group, opcode,
-                            F->getAttributes().getFnAttributes());
-  IRBuilder<> Builder(CI);
-  return Builder.CreateCall(newF, newArgs);
-}
-
-void LowerWaveMatType::lowerUserWithNewValue(User *U, Value *V, Value *NewV) {
-  if (CallInst *CI = dyn_cast<CallInst>(U)) {
-    HLOpcodeGroup group = GetHLOpcodeGroupByName(CI->getCalledFunction());
-    if (group == HLOpcodeGroup::HLWaveMatrix_Annotate ||
-        group == HLOpcodeGroup::HLIntrinsic) {
-      Type *NewRet = needToLower(CI) ? lowerType(CI->getType()) : nullptr;
-      Value *NewU = RewriteIntrinsicCallForNewArg(CI, V, NewV, NewRet);
-      if (!U->user_empty()) {
-        if (NewRet)
-          lowerUseWithNewValue(U, NewU);
-        else
-          U->replaceAllUsesWith(NewU);
-      }
-      return;
-    }
-  } else if (BitCastInst *BI = dyn_cast<BitCastInst>(U)) {
-    BI->setOperand(0, NewV);
-    return;
-  }
-
-  DXASSERT(0, "invalid operation on WaveMatrix pointer");
-}
-
-void LowerWaveMatType::lowerUseWithNewValue(Value *V, Value *NewV) {
-  SmallVector<Instruction *, 4> deadInsts;
-  for (auto it = V->user_begin(); it != V->user_end();) {
-    User *U = *it;
-    // Prevent double User iteration when multiple Uses in same User
-    while (it != V->user_end() && *it == U)
-      ++it;
-    if (GEPOperator *GEP = dyn_cast<GEPOperator>(U)) {
-      if (!GEP->user_empty())
-        lowerUseWithNewValue(U, dxilutil::MirrorGEP(GEP, NewV));
-    } else {
-      lowerUserWithNewValue(U, V, NewV);
-    }
-    if (Instruction *I = dyn_cast<Instruction>(U))
-      if (I->user_empty())
-        deadInsts.push_back(I);
-  }
-  for (auto I : deadInsts)
-    I->eraseFromParent();
-}
-
-} // namespace
-
-char LowerWaveMatType::ID = 0;
-
-INITIALIZE_PASS(LowerWaveMatType, "hlsl-lower-wavematrix-type",
-                "Lower WaveMatrix types to dxil type", false, false)
-
-// Public interface to the LowerWaveMatType pass
-ModulePass *llvm::createLowerWaveMatTypePass() {
-  return new LowerWaveMatType();
 }

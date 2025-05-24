@@ -13,8 +13,6 @@
 #include "dxc/DxilContainer/DxilContainer.h"
 #include "dxc/Support/ErrorCodes.h"
 #include "dxc/Support/FileIOHelper.h"
-#include "dxc/Support/Global.h"
-#include "dxc/Support/WinIncludes.h"
 #include "dxc/Support/dxcapi.impl.h"
 #include "dxc/Support/microcom.h"
 #include "dxc/dxcapi.h"
@@ -47,6 +45,10 @@ HRESULT STDMETHODCALLTYPE DxcContainerBuilder::Load(IDxcBlob *pSource) {
                                   pPartHeader->PartSize, &pBlob));
       AddPart(DxilPart(pPartHeader->PartFourCC, pBlob));
     }
+    // Collect hash function.
+    const DxilContainerHeader *Header =
+        (DxilContainerHeader *)pSource->GetBufferPointer();
+    DetermineHashFunctionFromContainerContents(Header);
     return S_OK;
   }
   CATCH_CPP_RETURN_HRESULT();
@@ -102,7 +104,11 @@ HRESULT STDMETHODCALLTYPE DxcContainerBuilder::RemovePart(UINT32 fourCC) {
 
 HRESULT STDMETHODCALLTYPE
 DxcContainerBuilder::SerializeContainer(IDxcOperationResult **ppResult) {
+  if (ppResult == nullptr)
+    return E_INVALIDARG;
+
   DxcThreadMalloc TM(m_pMalloc);
+
   try {
     // Allocate memory for new dxil container.
     uint32_t ContainerSize = ComputeContainerSize();
@@ -159,14 +165,59 @@ DxcContainerBuilder::SerializeContainer(IDxcOperationResult **ppResult) {
       errorHeap.Detach();
     }
 
+    // Add Hash.
+    if (SUCCEEDED(valHR))
+      HashAndUpdate(IsDxilContainerLike(pResult->GetBufferPointer(),
+                                        pResult->GetBufferSize()));
+
     IFT(DxcResult::Create(
         valHR, DXC_OUT_OBJECT,
         {DxcOutputObject::DataOutput(DXC_OUT_OBJECT, pResult, DxcOutNoName),
          DxcOutputObject::DataOutput(DXC_OUT_ERRORS, pErrorBlob, DxcOutNoName)},
         ppResult));
-    return S_OK;
   }
   CATCH_CPP_RETURN_HRESULT();
+
+  return S_OK;
+}
+
+// Try hashing the source contained in ContainerHeader using retail and debug
+// hashing functions. If either of them match the stored result, set the
+// HashFunction to the matching variant. If neither match, set it to null.
+void DxcContainerBuilder::DetermineHashFunctionFromContainerContents(
+    const DxilContainerHeader *ContainerHeader) {
+  DXASSERT(ContainerHeader != nullptr &&
+               IsDxilContainerLike(ContainerHeader,
+                                   ContainerHeader->ContainerSizeInBytes),
+           "otherwise load function should have returned an error.");
+  constexpr uint32_t HashStartOffset =
+      offsetof(struct DxilContainerHeader, Version);
+  auto *DataToHash = (const BYTE *)ContainerHeader + HashStartOffset;
+  UINT AmountToHash = ContainerHeader->ContainerSizeInBytes - HashStartOffset;
+  BYTE Result[DxilContainerHashSize];
+  ComputeHashRetail(DataToHash, AmountToHash, Result);
+  if (0 == memcmp(Result, ContainerHeader->Hash.Digest, sizeof(Result))) {
+    m_HashFunction = ComputeHashRetail;
+  } else {
+    ComputeHashDebug(DataToHash, AmountToHash, Result);
+    if (0 == memcmp(Result, ContainerHeader->Hash.Digest, sizeof(Result)))
+      m_HashFunction = ComputeHashDebug;
+    else
+      m_HashFunction = nullptr;
+  }
+}
+
+// For Internal hash function.
+void DxcContainerBuilder::HashAndUpdate(DxilContainerHeader *ContainerHeader) {
+  if (m_HashFunction != nullptr) {
+    DXASSERT(ContainerHeader != nullptr,
+             "Otherwise serialization should have failed.");
+    static const UINT32 HashStartOffset =
+        offsetof(struct DxilContainerHeader, Version);
+    const BYTE *DataToHash = (const BYTE *)ContainerHeader + HashStartOffset;
+    UINT AmountToHash = ContainerHeader->ContainerSizeInBytes - HashStartOffset;
+    m_HashFunction(DataToHash, AmountToHash, ContainerHeader->Hash.Digest);
+  }
 }
 
 UINT32 DxcContainerBuilder::ComputeContainerSize() {

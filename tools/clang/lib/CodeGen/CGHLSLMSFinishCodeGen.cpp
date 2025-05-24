@@ -37,7 +37,6 @@
 #include "dxc/DXIL/DxilResourceProperties.h"
 #include "dxc/DXIL/DxilTypeSystem.h"
 #include "dxc/DXIL/DxilUtil.h"
-#include "dxc/DXIL/DxilWaveMatrix.h"
 #include "dxc/DxilRootSignature/DxilRootSignature.h"
 #include "dxc/HLSL/DxilExportMap.h"
 #include "dxc/HLSL/DxilGenerationPass.h"
@@ -174,18 +173,6 @@ Value *CastHandleToRes(HLModule &HLM, Value *Handle, llvm::Type *ResTy,
                                      (unsigned)HLCastOpcode::HandleToResCast,
                                      ResTy, {Handle}, *HLM.GetModule());
   return Res;
-}
-
-CallInst *CreateAnnotateWaveMatrix(HLModule &HLM, Value *WaveMatrixPtr,
-                                   DxilWaveMatrixProperties &WMP,
-                                   IRBuilder<> &Builder) {
-  Constant *WMPConstant = wavemat_helper::GetAsConstant(
-      WMP, HLM.GetOP()->GetWaveMatrixPropertiesType());
-  CallInst *CI = HLM.EmitHLOperationCall(
-      Builder, HLOpcodeGroup::HLWaveMatrix_Annotate,
-      (unsigned)HLOpcodeGroup::HLWaveMatrix_Annotate, WaveMatrixPtr->getType(),
-      {WaveMatrixPtr, WMPConstant}, *HLM.GetModule());
-  return CI;
 }
 
 // Lower CBV bitcast use to handle use.
@@ -747,36 +734,6 @@ GetResourcePropsFromIntrinsicObjectArg(Value *arg, HLModule &HLM,
   }
   DXASSERT(RP.isValid(), "invalid resource properties");
   return RP;
-}
-
-void AddAnnotateWaveMatrix(HLModule &HLM,
-                           DxilObjectProperties &objectProperties) {
-  for (auto it : objectProperties.waveMatMap) {
-    Value *V = it.first;
-    DxilWaveMatrixProperties &WMP = it.second;
-    // annotate Alloca, Param, or Global
-    if (AllocaInst *AI = dyn_cast<AllocaInst>(V)) {
-      // Insert annotation after alloca
-      IRBuilder<> Builder(AI->getNextNode());
-      CreateAnnotateWaveMatrix(HLM, V, WMP, Builder);
-    } else if (GlobalVariable *GV = dyn_cast<GlobalVariable>(V)) {
-      // Insert annotation in each function's entry block with users
-      SmallSetVector<Function *, 4> functions;
-      for (auto U : GV->users())
-        if (Instruction *I = dyn_cast<Instruction>(U))
-          functions.insert(I->getParent()->getParent());
-
-      for (auto F : functions) {
-        IRBuilder<> Builder(dxilutil::FindAllocaInsertionPt(F));
-        CreateAnnotateWaveMatrix(HLM, V, WMP, Builder);
-      }
-    } else if (Argument *Arg = dyn_cast<Argument>(V)) {
-      IRBuilder<> Builder(dxilutil::FindAllocaInsertionPt(Arg->getParent()));
-      CreateAnnotateWaveMatrix(HLM, V, WMP, Builder);
-    } else {
-      llvm_unreachable("WaveMatrix value is unexpected type");
-    }
-  }
 }
 
 void AddOpcodeParamForIntrinsic(HLModule &HLM, Function *F, unsigned opcode,
@@ -1475,7 +1432,6 @@ void SetPatchConstantFunctionWithAttr(
       HLM.HasDxilFunctionProps(EntryFunc.Func),
       " else AddHLSLFunctionInfo did not save the dxil function props for the "
       "HS entry.");
-  DxilFunctionProps *HSProps = &HLM.GetDxilFunctionProps(EntryFunc.Func);
   HLM.SetPatchConstantFunctionForHS(EntryFunc.Func, patchConstFunc);
   DXASSERT_NOMSG(patchConstantFunctionPropsMap.count(patchConstFunc));
   // Check no inout parameter for patch constant function.
@@ -1489,36 +1445,6 @@ void SetPatchConstantFunctionWithAttr(
           clang::DiagnosticsEngine::Error,
           "Patch Constant function %0 should not have inout param.");
       Diags.Report(Entry->second.SL, DiagID) << funcName;
-    }
-  }
-
-  // Input/Output control point validation.
-  if (patchConstantFunctionPropsMap.count(patchConstFunc)) {
-    const DxilFunctionProps &patchProps =
-        *patchConstantFunctionPropsMap[patchConstFunc];
-    if (patchProps.ShaderProps.HS.inputControlPoints != 0 &&
-        patchProps.ShaderProps.HS.inputControlPoints !=
-            HSProps->ShaderProps.HS.inputControlPoints) {
-      clang::DiagnosticsEngine &Diags = CGM.getDiags();
-      unsigned DiagID =
-          Diags.getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                "Patch constant function's input patch input "
-                                "should have %0 elements, but has %1.");
-      Diags.Report(Entry->second.SL, DiagID)
-          << HSProps->ShaderProps.HS.inputControlPoints
-          << patchProps.ShaderProps.HS.inputControlPoints;
-    }
-    if (patchProps.ShaderProps.HS.outputControlPoints != 0 &&
-        patchProps.ShaderProps.HS.outputControlPoints !=
-            HSProps->ShaderProps.HS.outputControlPoints) {
-      clang::DiagnosticsEngine &Diags = CGM.getDiags();
-      unsigned DiagID =
-          Diags.getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                "Patch constant function's output patch input "
-                                "should have %0 elements, but has %1.");
-      Diags.Report(Entry->second.SL, DiagID)
-          << HSProps->ShaderProps.HS.outputControlPoints
-          << patchProps.ShaderProps.HS.outputControlPoints;
     }
   }
 }
@@ -2869,10 +2795,12 @@ unsigned AlignBufferOffsetInLegacy(unsigned offset, unsigned size,
 }
 
 // Translate RayQuery constructor.  From:
-//  %call = call %"RayQuery<flags>" @<constructor>(%"RayQuery<flags>" %ptr)
+//  %call = call %"RayQuery<flags, constrayqueryflags<optional rayquery flags>>"
+//  @<constructor>(%"RayQuery<flags>" %ptr)
 // To:
-//  i32 %handle = AllocateRayQuery(i32 <IntrinsicOp::IOP_AllocateRayQuery>, i32
-//  %flags) %gep = GEP %"RayQuery<flags>" %ptr, 0, 0 store i32* %gep, i32
+//  i32 %handle = AllocateRayQuery2(i32 <IntrinsicOp::IOP_AllocateRayQuery>, i32
+//  %flags, i32 %constrayqueryflags <0 if not given>) %gep = GEP
+//  %"RayQuery<flags, constrayqueryflags>" %ptr, 0, 0 store i32* %gep, i32
 //  %handle ; and replace uses of %call with %ptr
 void TranslateRayQueryConstructor(HLModule &HLM) {
   llvm::Module &M = *HLM.GetModule();
@@ -2896,9 +2824,13 @@ void TranslateRayQueryConstructor(HLModule &HLM) {
     llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(M.getContext());
     llvm::ConstantInt *i32Zero =
         llvm::ConstantInt::get(i32Ty, (uint64_t)0, false);
+
+    // the third argument will default to 0 if the rayquery constructor doesn't
+    // have a second template argument
     llvm::FunctionType *funcTy =
-        llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty}, false);
+        llvm::FunctionType::get(i32Ty, {i32Ty, i32Ty, i32Ty}, false);
     unsigned opcode = (unsigned)IntrinsicOp::IOP_AllocateRayQuery;
+
     llvm::ConstantInt *opVal = llvm::ConstantInt::get(i32Ty, opcode, false);
     Function *opFunc =
         GetOrCreateHLFunction(M, funcTy, HLOpcodeGroup::HLIntrinsic, opcode);
@@ -2913,14 +2845,22 @@ void TranslateRayQueryConstructor(HLModule &HLM) {
           HLM.GetTypeSystem().GetStructAnnotation(pRQType);
       DXASSERT(SA, "otherwise, could not find type annoation for RayQuery "
                    "specialization");
-      DXASSERT(SA->GetNumTemplateArgs() == 1 &&
-                   SA->GetTemplateArgAnnotation(0).IsIntegral(),
+      DXASSERT((SA->GetNumTemplateArgs() == 1 &&
+                SA->GetTemplateArgAnnotation(0).IsIntegral()) ||
+                   (SA->GetNumTemplateArgs() == 2 &&
+                    SA->GetTemplateArgAnnotation(0).IsIntegral() &&
+                    SA->GetTemplateArgAnnotation(1).IsIntegral()),
                "otherwise, RayQuery has changed, or lacks template args");
       llvm::IRBuilder<> Builder(CI);
       llvm::Value *rayFlags =
           Builder.getInt32(SA->GetTemplateArgAnnotation(0).GetIntegral());
-      llvm::Value *Call =
-          Builder.CreateCall(opFunc, {opVal, rayFlags}, pThis->getName());
+      // the default val of 0 will be assigned if there is no 2nd template arg
+      llvm::Value *rayQueryFlags =
+          Builder.getInt32(SA->GetTemplateArgAnnotation(1).GetIntegral());
+
+      llvm::Value *Call = Builder.CreateCall(
+          opFunc, {opVal, rayFlags, rayQueryFlags}, pThis->getName());
+
       llvm::Value *GEP = Builder.CreateInBoundsGEP(pThis, {i32Zero, i32Zero});
       Builder.CreateStore(Call, GEP);
       CI->replaceAllUsesWith(pThis);
@@ -2997,7 +2937,6 @@ bool BuildImmInit(Function *Ctor) {
         allConst = false;
         break;
       }
-      ImmList.emplace_back(cast<Constant>(V));
       Value *Ptr = SI->getPointerOperand();
       if (GEPOperator *GepOp = dyn_cast<GEPOperator>(Ptr)) {
         Ptr = GepOp->getPointerOperand();
@@ -3009,6 +2948,17 @@ bool BuildImmInit(Function *Ctor) {
           }
         }
       }
+      // If initializing an array, make sure init value type matches array
+      // element type
+      if (GV) {
+        llvm::Type *GVElemTy = GV->getType()->getElementType();
+        if (llvm::ArrayType *AT = dyn_cast<llvm::ArrayType>(GVElemTy)) {
+          llvm::Type *ElTy = AT->getElementType();
+          if (V->getType() != ElTy)
+            return false;
+        }
+      }
+      ImmList.emplace_back(cast<Constant>(V));
     } else {
       if (!isa<ReturnInst>(*I)) {
         allConst = false;
@@ -3578,9 +3528,6 @@ void FinishIntrinsics(
   // Lower bitcast use of CBV into cbSubscript.
   LowerDynamicCBVUseToHandle(HLM, objectProperties);
 
-  // Add AnnotateWaveMatrix
-  AddAnnotateWaveMatrix(HLM, objectProperties);
-
   // translate opcode into parameter for intrinsic functions
   // Do this before CloneShaderEntry and TranslateRayQueryConstructor to avoid
   // update valToResPropertiesMap for cloned inst.
@@ -4087,35 +4034,17 @@ hlsl::DxilResourceProperties DxilObjectProperties::GetResource(llvm::Value *V) {
     return it->second;
   return DxilResourceProperties();
 }
-void DxilObjectProperties::updateGLC(llvm::Value *V) {
+void DxilObjectProperties::updateCoherence(llvm::Value *V,
+                                           bool updateGloballyCoherent,
+                                           bool updateReorderCoherent) {
   auto it = resMap.find(V);
   if (it == resMap.end())
     return;
 
-  it->second.Basic.IsGloballyCoherent ^= 1;
-}
-
-bool DxilObjectProperties::AddWaveMatrix(
-    llvm::Value *V, const hlsl::DxilWaveMatrixProperties &WMP) {
-  if (WMP.isValid()) {
-    DXASSERT(!GetWaveMatrix(V).isValid() || GetWaveMatrix(V) == WMP,
-             "otherwise, property conflict");
-    waveMatMap[V] = WMP;
-    return true;
-  }
-  return false;
-}
-
-bool DxilObjectProperties::IsWaveMatrix(llvm::Value *V) {
-  return waveMatMap.count(V) != 0;
-}
-
-hlsl::DxilWaveMatrixProperties
-DxilObjectProperties::GetWaveMatrix(llvm::Value *V) {
-  auto it = waveMatMap.find(V);
-  if (it != waveMatMap.end())
-    return it->second;
-  return DxilWaveMatrixProperties();
+  if (updateGloballyCoherent)
+    it->second.Basic.IsGloballyCoherent ^= 1;
+  if (updateReorderCoherent)
+    it->second.Basic.IsReorderCoherent ^= 1;
 }
 
 } // namespace CGHLSLMSHelper

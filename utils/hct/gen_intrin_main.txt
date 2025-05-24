@@ -124,7 +124,7 @@ $match<0, 1> float_like [[rn]] determinant(in float_like<r, r> x);
 void [[]] DeviceMemoryBarrier() : syncdevicememory_ug;
 void [[]] DeviceMemoryBarrierWithGroupSync() : syncgroupanddevicememory_ug;
 $match<0, 1> float_like [[rn]] distance(in float_like<c> a, in $type1 b);
-$match<0, 1> numeric [[rn]] dot(in numeric<c> a, in $type1 b);
+$match<0, 1> numeric [[rn,unsigned_op=udot]] dot(in numeric<c> a, in $type1 b);
 $type1 [[rn]] dst(in numeric<4> a, in $type1 b);
 // void errorf(in string Format, ...);
 $type1 [[rn]] EvaluateAttributeAtSample(in numeric<> value, in uint index);
@@ -198,13 +198,13 @@ $type1 [[rn,unsigned_op=umax]] max(in numeric<> a, in $type1 b);
 $type1 [[rn,unsigned_op=umin]] min(in numeric<> a, in $type1 b);
 $type1 [[]] modf(in float_like<> x, out $type1 ip);
 uint<4> [[rn]] msad4(in uint reference, in uint<2> source, in uint<4> accum);
-numeric [[rn]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric b) : mul_ss;
-numeric<c2> [[rn]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric<c2> b) : mul_sv;
-numeric<r2, c2> [[rn]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric<r2, c2> b) : mul_sm;
-numeric<c> [[rn]] mul(in $match<1, 0> numeric<c> a, in $match<2, 0> numeric b) : mul_vs;
-numeric [[rn]] mul(in $match<1, 0> numeric<c> a, in $match<2, 0> numeric<c> b) : mul_vv;
+numeric [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric b) : mul_ss;
+numeric<c2> [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric<c2> b) : mul_sv;
+numeric<r2, c2> [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric a, in $match<2, 0> numeric<r2, c2> b) : mul_sm;
+numeric<c> [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric<c> a, in $match<2, 0> numeric b) : mul_vs;
+numeric [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric<c> a, in $match<2, 0> numeric<c> b) : mul_vv;
 numeric<c2> [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric<c> a, in col_major $match<2, 0> numeric<c, c2> b) : mul_vm;
-numeric<r, c> [[rn]] mul(in $match<1, 0> numeric<r, c> a, in $match<2, 0> numeric b) : mul_ms;
+numeric<r, c> [[rn,unsigned_op=umul]] mul(in $match<1, 0> numeric<r, c> a, in $match<2, 0> numeric b) : mul_ms;
 numeric<r> [[rn,unsigned_op=umul]] mul(in row_major $match<1, 0> numeric<r, c> a, in $match<2, 0> numeric<c> b) : mul_mv;
 numeric<r, c2> [[rn,unsigned_op=umul]] mul(in row_major $match<1, 0> numeric<r, c> a, in col_major $match<2, 0> numeric<c, c2> b) : mul_mm;
 $type1 [[rn]] normalize(in float_like<c> x);
@@ -270,7 +270,7 @@ $type1 [[rn]] NonUniformResourceIndex(in any<> index) : nonuniform_resource_inde
 
 // Wave intrinsics. Only those that depend on the exec mask are marked as wave-sensitive
 bool   [[wv]] WaveIsFirstLane();
-uint   [[rn]] WaveGetLaneIndex();
+uint   [[ro]] WaveGetLaneIndex();
 uint   [[rn]] WaveGetLaneCount();
 bool   [[wv]] WaveActiveAnyTrue(in bool cond);
 bool   [[wv]] WaveActiveAllTrue(in bool cond);
@@ -336,9 +336,9 @@ float<4,3> [[rn]] ObjectToWorld4x3();
 float<4,3> [[rn]] WorldToObject4x3();
 
 // Packed dot products with accumulate:
-$type3 [[rn]] dot4add_u8packed(in uint a, in $type1 b, in uint c);
-$type3 [[rn]] dot4add_i8packed(in uint a, in $type1 b, in int c);
-$type3 [[rn]] dot2add(in float16_t<2> a, in $type1 b, in float c);
+uint [[rn]] dot4add_u8packed(in uint a, in $type1 b, in uint c);
+int [[rn]] dot4add_i8packed(in uint a, in $type1 b, in int c);
+float [[rn]] dot2add(in float16_t<2> a, in $type1 b, in float c);
 
 // Unpacking intrinsics
 int16_t<4> [[rn]] unpack_s8s16(in p32i8 pk);
@@ -361,16 +361,16 @@ void [[]] DispatchMesh(in uint threadGroupCountX, in uint threadGroupCountY, in 
 // Return true if the current lane is a helper lane
 bool [[ro]] IsHelperLane();
 
-// HL Op for allocating ray query object that default constructor uses
-uint [[hidden]] AllocateRayQuery(in uint flags);
+// HL Op for allocating ray query object
+uint [[hidden]] AllocateRayQuery(in uint flags, in uint rayqueryflags);
 
 resource [[hidden]] CreateResourceFromHeap(in uint index);
 
 // Replacement for vector logical &&, ||, and ternary conditional operators,
 // For use when HLSL changes to support short-circuiting and only scalar
 // conditions to maintain clarity.
-$match<1, 0> bool<> [[rn]] and(in any<> x, in $type1 y);
-$match<1, 0> bool<> [[rn]] or(in any<> x, in $type1 y);
+$match<1, 0> bool<> [[rn]] and(in bool<> x, in $type1 y);
+$match<1, 0> bool<> [[rn]] or(in bool<> x, in $type1 y);
 $type2 [[rn]] select(in bool<> cond, in $match<1, 2> any<> t, in $type2 f);
 $type2 [[rn]] select(in bool cond, in any_sampler t, in $type2 f);
 
@@ -379,6 +379,14 @@ void [[]] Barrier(in uint MemoryTypeFlags, in uint SemanticFlags);
 void [[]] Barrier(in NodeRecordOrUAV o, in uint SemanticFlags);
 
 uint [[]] GetRemainingRecursionLevels();
+
+void [[min_sm=6.9]] __builtin_MatVecMul(out LinAlg<c> OutputVector, in bool OutputIsUnsigned, in LinAlg<c2> InputVector, in bool InputIsUnsigned, in uint InputInterpretation, in ByteAddressBuffer MatrixBuffer, in uint MatrixOffset, in uint MatrixInterpretation, in uint M, in uint K, in uint MatrixLayout, in bool MatrixIsTransposed, in uint MatrixStride);
+
+void [[min_sm=6.9]] __builtin_MatVecMulAdd(out LinAlg<c> OutputVector, in bool OutputIsUnsigned, in LinAlg<c2> InputVector, in bool InputIsUnsigned, in uint InputInterpretation, in ByteAddressBuffer MatrixBuffer, in uint MatrixOffset, in uint MatrixInterpretation, in uint M, in uint K, in uint MatrixLayout, in bool MatrixIsTransposed, in uint MatrixStride, in ByteAddressBuffer BiasVector, in uint BiasOffset, in uint BiasInterpretation);
+
+void [[min_sm=6.9]] __builtin_OuterProductAccumulate(in LinAlg<c> InputVector1, in LinAlg<c2> InputVector2, in RWByteAddressBuffer MatrixBuffer, in uint MatrixOffset, in uint MatrixInterpretation, in uint MatrixLayout, in uint MatrixStride);
+
+void [[min_sm=6.9]] __builtin_VectorAccumulate(in LinAlg<c> InputVector, in RWByteAddressBuffer MatrixBuffer, in uint MatrixOffset);
 
 } namespace
 
@@ -393,7 +401,13 @@ void [[]] RawBufferStore(in u64 addr, in $funcT value);
 void [[]] RawBufferStore(in u64 addr, in $funcT value, in uint alignment);
 void [[]] ext_execution_mode(in uint mode, ...);
 void [[]] ext_execution_mode_id(in uint mode, ...);
+$funcT2 [[]] static_pointer_cast(in VkBufferPointer ptr);
+$funcT2 [[]] reinterpret_pointer_cast(in VkBufferPointer ptr);
 
+} namespace
+
+namespace BufferPointerMethods {
+$classT [[ro]] GetBufferContents();
 } namespace
 // SPIRV Change Ends
 
@@ -1089,123 +1103,43 @@ uint [[ro]] CommittedInstanceContributionToHitGroupIndex();
 
 } namespace
 
-namespace WaveMatrixLeftMethods {
-
-void [[amo]] Fill(in $match<1, -1> numeric value);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-
-// input/output must be an array in groupshared memory
-void [[amo]] Load(in groupshared $match<1, -1> numeric[] input, in uint start, in uint stride, in bool bColMajor);
-void [[amo]] Store(out groupshared $match<1, -1> numeric[] output, in uint start, in uint stride, in bool bColMajor);
-
-uint [[rn]] MatrixDepth();
-
+// Shader Execution Reordering
+namespace DxHitObjectMethods {
+    DxHitObject [[static,class_prefix,min_sm=6.9]] MakeNop();
+    DxHitObject [[static,class_prefix,min_sm=6.9]] MakeMiss(in uint RayFlags, in uint MissShaderIndex, in ray_desc Ray);
+    DxHitObject [[static,class_prefix,min_sm=6.9]] FromRayQuery(in RayQuery rq);
+    DxHitObject [[static,class_prefix,min_sm=6.9]] FromRayQuery(in RayQuery rq, in uint HitKind, in udt Attributes);
+    DxHitObject [[static,class_prefix,min_sm=6.9]] TraceRay(in acceleration_struct AccelerationStructure, in uint RayFlags, in uint InstanceInclusionMask, in uint RayContributionToHitGroupIndex, in uint MultiplierForGeometryContributionToHitGroupIndex, in uint MissShaderIndex, in ray_desc Ray, inout udt Payload);
+    void [[static,class_prefix,min_sm=6.9]] Invoke(in DxHitObject ho, inout udt Payload);
+    bool [[rn,class_prefix,min_sm=6.9]] IsMiss();
+    bool [[rn,class_prefix,min_sm=6.9]] IsHit();
+    bool [[rn,class_prefix,min_sm=6.9]] IsNop();
+    uint [[rn,class_prefix,min_sm=6.9]] GetRayFlags();
+    float [[rn,class_prefix,min_sm=6.9]] GetRayTMin();
+    float [[rn,class_prefix,min_sm=6.9]] GetRayTCurrent();
+    float<3> [[rn,class_prefix,min_sm=6.9]] GetWorldRayOrigin();
+    float<3> [[rn,class_prefix,min_sm=6.9]] GetWorldRayDirection();
+    float<3> [[rn,class_prefix,min_sm=6.9]] GetObjectRayOrigin();
+    float<3> [[rn,class_prefix,min_sm=6.9]] GetObjectRayDirection();
+    float<3,4> [[rn,class_prefix,min_sm=6.9]] GetObjectToWorld3x4();
+    float<4,3> [[rn,class_prefix,min_sm=6.9]] GetObjectToWorld4x3();
+    float<3,4> [[rn,class_prefix,min_sm=6.9]] GetWorldToObject3x4();
+    float<4,3> [[rn,class_prefix,min_sm=6.9]] GetWorldToObject4x3();
+    uint [[rn,class_prefix,min_sm=6.9]] GetGeometryIndex();
+    uint [[rn,class_prefix,min_sm=6.9]] GetInstanceIndex();
+    uint [[rn,class_prefix,min_sm=6.9]] GetInstanceID();
+    uint [[rn,class_prefix,min_sm=6.9]] GetPrimitiveIndex();
+    uint [[rn,class_prefix,min_sm=6.9]] GetHitKind();
+    uint [[rn,class_prefix,min_sm=6.9]] GetShaderTableIndex();
+    $funcT [[class_prefix,min_sm=6.9]] GetAttributes();
+    void [[class_prefix,min_sm=6.9]] SetShaderTableIndex(in uint RecordIndex);
+    uint [[ro,class_prefix,min_sm=6.9]] LoadLocalRootTableConstant(in uint RootConstantOffsetInBytes);
 } namespace
 
-namespace WaveMatrixRightMethods {
-
-void [[amo]] Fill(in $match<1, -1> numeric value);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-
-// input/output must be an array in groupshared memory
-void [[amo]] Load(in groupshared $match<1, -1> numeric[] input, in uint start, in uint stride, in bool bColMajor);
-void [[amo]] Store(out groupshared $match<1, -1> numeric[] output, in uint start, in uint stride, in bool bColMajor);
-
-uint [[rn]] MatrixDepth();
-
-} namespace
-
-namespace WaveMatrixLeftColAccMethods {
-
-void [[amo]] Fill(in $match<1, -1> numeric value);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-
-// input/output must be an array in groupshared memory
-void [[amo]] Load(in groupshared $match<1, -1> numeric[] input, in uint start, in uint elementStride);
-void [[amo]] Store(out groupshared $match<1, -1> numeric[] output, in uint start, in uint elementStride);
-
-void [[amo]] ScalarMultiply(in $match<1, -1> numeric value);
-void [[amo]] ScalarDivide(in $match<1, -1> numeric value);
-void [[amo]] ScalarAdd(in $match<1, -1> numeric value);
-void [[amo]] ScalarSubtract(in $match<1, -1> numeric value);
-
-void [[amo]] SumAccumulate(in WaveMatrixLeft mat);
-
-} namespace
-
-namespace WaveMatrixRightRowAccMethods {
-
-void [[amo]] Fill(in $match<1, -1> numeric value);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint elementStride);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint elementStride, in uint alignment);
-
-// input/output must be an array in groupshared memory
-void [[amo]] Load(in groupshared $match<1, -1> numeric[] input, in uint start, in uint elementStride);
-void [[amo]] Store(out groupshared $match<1, -1> numeric[] output, in uint start, in uint elementStride);
-
-void [[amo]] ScalarMultiply(in $match<1, -1> numeric value);
-void [[amo]] ScalarDivide(in $match<1, -1> numeric value);
-void [[amo]] ScalarAdd(in $match<1, -1> numeric value);
-void [[amo]] ScalarSubtract(in $match<1, -1> numeric value);
-
-void [[amo]] SumAccumulate(in WaveMatrixRight mat);
-
-} namespace
-
-namespace WaveMatrixAccumulatorMethods {
-
-void [[amo]] Fill(in $match<1, -1> numeric value);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Load(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in ByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor);
-void [[]] Store(in RWByteAddressBuffer buffer, in uint start, in uint stride, in bool bColMajor, in uint alignment);
-
-// input/output must be an array in groupshared memory
-void [[amo]] Load(in groupshared $match<1, -1> numeric[] input, in uint start, in uint stride, in bool bColMajor);
-void [[amo]] Store(out groupshared $match<1, -1> numeric[] output, in uint start, in uint stride, in bool bColMajor);
-
-void [[amo]] ScalarMultiply(in $match<1, -1> numeric value);
-void [[amo]] ScalarDivide(in $match<1, -1> numeric value);
-void [[amo]] ScalarAdd(in $match<1, -1> numeric value);
-void [[amo]] ScalarSubtract(in $match<1, -1> numeric value);
-
-void [[amo]] Multiply(in WaveMatrixLeft matA, in WaveMatrixRight matB);
-void [[amo]] MultiplyAccumulate(in WaveMatrixLeft matA, in WaveMatrixRight matB);
-void [[amo]] Add(in WaveMatrixLeftColAcc broadcastedMatrix);
-void [[amo]] Add(in WaveMatrixRightRowAcc broadcastedMatrix);
-void [[amo]] Add(in WaveMatrixAccumulator fullMatrix);
-
+namespace DxIntrinsics {
+void [[min_sm=6.9]] MaybeReorderThread(in DxHitObject HitObject);
+void [[min_sm=6.9]] MaybeReorderThread(in uint CoherenceHint, in uint NumCoherenceHintBitsFromLSB);
+void [[min_sm=6.9]] MaybeReorderThread(in DxHitObject HitObject, in uint CoherenceHint, in uint NumCoherenceHintBitsFromLSB);
 } namespace
 
 // Work Graphs objects and methods
@@ -1255,4 +1189,3 @@ $classT [[]] SubpassLoad(in int sample) : subpassinputms_load;
 } namespace
 
 // SPIRV Change Ends
-

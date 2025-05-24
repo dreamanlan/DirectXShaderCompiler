@@ -102,6 +102,7 @@ set(LIBRARIES
   clangTooling
   clangBasic
   libclang
+  dxcvalidator
   )
 
 if(WIN32)
@@ -121,13 +122,13 @@ set(GENERATED_HEADERS
   ClangStmtNodes
   )
 
-if (WIN32)
+if (MSVC)
   find_package(DiaSDK REQUIRED) # Used for constants and declarations.
-endif (WIN32)
+endif (MSVC)
 
 add_clang_library(dxcompiler SHARED ${SOURCES})
 add_dependencies(dxcompiler TablegenHLSLOptions) 
-if (WIN32)
+if (MSVC)
   # No DxcEtw on non-Windows platforms.
   add_dependencies(dxcompiler DxcEtw)
 endif()
@@ -135,7 +136,16 @@ target_link_libraries(dxcompiler PRIVATE ${LIBRARIES})
 if (ENABLE_SPIRV_CODEGEN)
   target_link_libraries(dxcompiler PRIVATE clangSPIRV)
 endif (ENABLE_SPIRV_CODEGEN)
+if (ENABLE_METAL_CODEGEN)
+  target_link_libraries(dxcompiler PRIVATE ${METAL_IRCONVERTER_LIB})
+  target_include_directories(dxcompiler PRIVATE ${METAL_IRCONVERTER_INCLUDE_DIR})
+
+  get_filename_component(METAL_IRCONVERTER_LIB_DIR ${METAL_IRCONVERTER_LIB} DIRECTORY CACHE)
+  set_property(TARGET dxcompiler APPEND_STRING
+               PROPERTY LINK_FLAGS " -Wl,-rpath,${METAL_IRCONVERTER_LIB_DIR}")
+endif (ENABLE_METAL_CODEGEN)
 include_directories(AFTER ${LLVM_INCLUDE_DIR}/dxc/Tracing ${DIASDK_INCLUDE_DIRS} ${HLSL_VERSION_LOCATION})
+include_directories(${LLVM_SOURCE_DIR}/tools/clang/tools/dxcvalidator)
 
 set_target_properties(dxcompiler
   PROPERTIES

@@ -44,6 +44,7 @@ def BoolConversion : DiagGroup<"bool-conversion", [PointerBoolConversion,
 def IntConversion : DiagGroup<"int-conversion">;
 def EnumConversion : DiagGroup<"enum-conversion">;
 def FloatConversion : DiagGroup<"float-conversion">;
+def DoublePromotion : DiagGroup<"double-promotion">; // HLSL Change - backport.
 def EnumTooLarge : DiagGroup<"enum-too-large">;
 def UnsupportedNan : DiagGroup<"unsupported-nan">;
 def NonLiteralNullConversion : DiagGroup<"non-literal-null-conversion">;
@@ -783,6 +784,7 @@ def HLSLEffectsSyntax : DiagGroup<"effects-syntax">;
 def HLSLForRedefinition : DiagGroup<"for-redefinition">;
 def HLSLAttributeStatement : DiagGroup<"attribute-statement">;
 def HLSLAttributeType : DiagGroup<"attribute-type">;
+def HLSLEntryAttributeWithoutShaderAttrType : DiagGroup<"misplaced-attributes">;
 def HLSLSpecifierOverride : DiagGroup<"specifier-override">;
 def HLSLPackOffsetOverride : DiagGroup<"packoffset-override">;
 def HLSLCommaInInit : DiagGroup<"comma-in-init">;
@@ -797,7 +799,12 @@ def HLSLPayloadAccessQualifer: DiagGroup<"payload-access-qualifier", [
      HLSLPayloadAccessQualiferPerf,
      HLSLPayloadAccessQualiferCall
   ]>;
+def HLSLRayQueryFlags : DiagGroup<"hlsl-rayquery-flags">;
 def HLSLSemanticIdentifierCollision : DiagGroup<"semantic-identifier-collision">;
 def HLSLStructurizeExitsLifetimeMarkersConflict: DiagGroup<"structurize-exits-lifetime-markers-conflict">;
 def HLSLParameterUsage : DiagGroup<"parameter-usage">;
+def HLSLAvailability: DiagGroup<"hlsl-availability">;
+def HLSLAvailabilityConstant: DiagGroup<"hlsl-availability-constant">;
+def HLSLBarrier : DiagGroup<"hlsl-barrier">;
+def HLSLLegacyLiterals : DiagGroup<"hlsl-legacy-literal">;
 // HLSL Change Ends

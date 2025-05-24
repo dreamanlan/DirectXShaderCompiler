@@ -4,6 +4,7 @@
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
+//
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_CLANG_SPIRV_SPIRVVISITOR_H
 #define LLVM_CLANG_SPIRV_SPIRVVISITOR_H
@@ -60,7 +61,7 @@ public:
   DEFINE_VISIT_METHOD(SpirvExtInstImport)
   DEFINE_VISIT_METHOD(SpirvMemoryModel)
   DEFINE_VISIT_METHOD(SpirvEntryPoint)
-  DEFINE_VISIT_METHOD(SpirvExecutionMode)
+  DEFINE_VISIT_METHOD(SpirvExecutionModeBase)
   DEFINE_VISIT_METHOD(SpirvString)
   DEFINE_VISIT_METHOD(SpirvSource)
   DEFINE_VISIT_METHOD(SpirvModuleProcessed)
@@ -89,6 +90,9 @@ public:
   DEFINE_VISIT_METHOD(SpirvConstantFloat)
   DEFINE_VISIT_METHOD(SpirvConstantComposite)
   DEFINE_VISIT_METHOD(SpirvConstantNull)
+  DEFINE_VISIT_METHOD(SpirvConvertPtrToU)
+  DEFINE_VISIT_METHOD(SpirvConvertUToPtr)
+  DEFINE_VISIT_METHOD(SpirvUndef)
   DEFINE_VISIT_METHOD(SpirvCompositeConstruct)
   DEFINE_VISIT_METHOD(SpirvCompositeExtract)
   DEFINE_VISIT_METHOD(SpirvCompositeInsert)
@@ -96,9 +100,7 @@ public:
   DEFINE_VISIT_METHOD(SpirvEndPrimitive)
   DEFINE_VISIT_METHOD(SpirvExtInst)
   DEFINE_VISIT_METHOD(SpirvFunctionCall)
-  DEFINE_VISIT_METHOD(SpirvNonUniformBinaryOp)
-  DEFINE_VISIT_METHOD(SpirvNonUniformElect)
-  DEFINE_VISIT_METHOD(SpirvNonUniformUnaryOp)
+  DEFINE_VISIT_METHOD(SpirvGroupNonUniformOp)
   DEFINE_VISIT_METHOD(SpirvImageOp)
   DEFINE_VISIT_METHOD(SpirvImageQuery)
   DEFINE_VISIT_METHOD(SpirvImageSparseTexelsResident)
@@ -134,6 +136,7 @@ public:
   DEFINE_VISIT_METHOD(SpirvDebugTypeBasic)
   DEFINE_VISIT_METHOD(SpirvDebugTypeArray)
   DEFINE_VISIT_METHOD(SpirvDebugTypeVector)
+  DEFINE_VISIT_METHOD(SpirvDebugTypeMatrix)
   DEFINE_VISIT_METHOD(SpirvDebugTypeFunction)
   DEFINE_VISIT_METHOD(SpirvDebugTypeComposite)
   DEFINE_VISIT_METHOD(SpirvDebugTypeMember)

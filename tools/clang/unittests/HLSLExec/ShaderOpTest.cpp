@@ -258,6 +258,15 @@ void CommandListRefs::CreateForDevice(ID3D12Device *pDevice, bool compute) {
                                       IID_PPV_ARGS(&List)));
 }
 
+ShaderOpTest::ShaderOpTest() {
+  m_hFence = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+  if (m_hFence == nullptr) {
+    AtlThrow(HRESULT_FROM_WIN32(GetLastError()));
+  }
+}
+
+ShaderOpTest::~ShaderOpTest() { CloseHandle(m_hFence); }
+
 void ShaderOpTest::CopyBackResources() {
   CommandListRefs ResCommandList;
   ResCommandList.CreateForDevice(m_pDevice, m_pShaderOp->IsCompute());
@@ -423,10 +432,6 @@ void ShaderOpTest::CreateDevice() {
   CHECK_HR(m_pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                   __uuidof(ID3D12Fence), (void **)&m_pFence));
   m_pFence->SetName(L"ShaderOpTest Fence");
-  m_hFence = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-  if (m_hFence == nullptr) {
-    AtlThrow(HRESULT_FROM_WIN32(GetLastError()));
-  }
 }
 
 static void InitByteCode(D3D12_SHADER_BYTECODE *pBytecode, ID3D10Blob *pBlob) {
@@ -848,10 +853,10 @@ void ShaderOpTest::CreateShaders() {
       CComPtr<IDxcLibrary> pLibrary;
       CComPtr<IDxcBlobEncoding> pTextBlob;
       CComPtr<IDxcOperationResult> pResult;
-      CA2W nameW(S.Name, CP_UTF8);
-      CA2W entryPointW(S.EntryPoint, CP_UTF8);
-      CA2W targetW(S.Target, CP_UTF8);
-      CA2W argumentsW(pArguments, CP_UTF8);
+      CA2W nameW(S.Name);
+      CA2W entryPointW(S.EntryPoint);
+      CA2W targetW(S.Target);
+      CA2W argumentsW(pArguments);
 
       std::vector<LPCWSTR> argumentsWList;
       splitWStringIntoVectors(argumentsW, L' ', argumentsWList);

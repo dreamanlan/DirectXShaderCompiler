@@ -8,6 +8,7 @@
 
 #include "RawBufferMethods.h"
 #include "AlignmentSizeCalculator.h"
+#include "LowerTypeVisitor.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/RecordLayout.h"
@@ -116,48 +117,32 @@ SpirvInstruction *RawBufferHandler::load64Bits(SpirvInstruction *buffer,
   SpirvInstruction *ptr = nullptr;
   auto *constUint0 =
       spvBuilder.getConstantInt(astContext.UnsignedIntTy, llvm::APInt(32, 0));
-  auto *constUint32 =
-      spvBuilder.getConstantInt(astContext.UnsignedIntTy, llvm::APInt(32, 32));
 
+  // Load the first word and increment index.
   auto *index = address.getWordIndex(loc, range);
-
-  // Need to perform two 32-bit uint loads and construct a 64-bit value.
-
-  // Load the first 32-bit uint (word0).
   ptr = spvBuilder.createAccessChain(astContext.UnsignedIntTy, buffer,
                                      {constUint0, index}, loc, range);
   SpirvInstruction *word0 =
       spvBuilder.createLoad(astContext.UnsignedIntTy, ptr, loc, range);
-  // Increment the base index
   address.incrementWordIndex(loc, range);
+
+  // Load the second word and increment index.
   index = address.getWordIndex(loc, range);
-  // Load the second 32-bit uint (word1).
   ptr = spvBuilder.createAccessChain(astContext.UnsignedIntTy, buffer,
                                      {constUint0, index}, loc, range);
   SpirvInstruction *word1 =
       spvBuilder.createLoad(astContext.UnsignedIntTy, ptr, loc, range);
-
-  // Convert both word0 and word1 to 64-bit uints.
-  word0 = spvBuilder.createUnaryOp(
-      spv::Op::OpUConvert, astContext.UnsignedLongLongTy, word0, loc, range);
-  word1 = spvBuilder.createUnaryOp(
-      spv::Op::OpUConvert, astContext.UnsignedLongLongTy, word1, loc, range);
-
-  // Shift word1 to the left by 32 bits.
-  word1 = spvBuilder.createBinaryOp(spv::Op::OpShiftLeftLogical,
-                                    astContext.UnsignedLongLongTy, word1,
-                                    constUint32, loc, range);
-
-  // BitwiseOr word0 and word1.
-  result = spvBuilder.createBinaryOp(spv::Op::OpBitwiseOr,
-                                     astContext.UnsignedLongLongTy, word0,
-                                     word1, loc, range);
-  result = bitCastToNumericalOrBool(result, astContext.UnsignedLongLongTy,
-                                    target64BitType, loc, range);
-  result->setRValue();
-
   address.incrementWordIndex(loc, range);
 
+  // Combine the 2 words into a composite, and bitcast into the destination
+  // type.
+  const auto uintVec2Type =
+      astContext.getExtVectorType(astContext.UnsignedIntTy, 2);
+  auto *operand = spvBuilder.createCompositeConstruct(
+      uintVec2Type, {word0, word1}, loc, range);
+  result = spvBuilder.createUnaryOp(spv::Op::OpBitcast, target64BitType,
+                                    operand, loc, range);
+  result->setRValue();
   return result;
 }
 
@@ -284,37 +269,34 @@ SpirvInstruction *RawBufferHandler::processTemplatedLoadFromBuffer(
   // aligned like their field with the largest alignment.
   // As a result, there might exist some padding after some struct members.
   if (const auto *structType = targetType->getAs<RecordType>()) {
-    const auto *decl = structType->getDecl();
+    LowerTypeVisitor lowerTypeVisitor(astContext, theEmitter.getSpirvContext(),
+                                      theEmitter.getSpirvOptions(), spvBuilder);
+    auto *decl = targetType->getAsTagDecl();
+    assert(decl && "Expected all structs to be tag decls.");
+    const StructType *spvType = dyn_cast<StructType>(lowerTypeVisitor.lowerType(
+        targetType, theEmitter.getSpirvOptions().sBufferLayoutRule, llvm::None,
+        decl->getLocation()));
     llvm::SmallVector<SpirvInstruction *, 4> loadedElems;
-    uint32_t fieldOffsetInBytes = 0;
-    uint32_t structAlignment = 0, structSize = 0, stride = 0;
-    std::tie(structAlignment, structSize) =
-        AlignmentSizeCalculator(astContext, theEmitter.getSpirvOptions())
-            .getAlignmentAndSize(targetType,
-                                 theEmitter.getSpirvOptions().sBufferLayoutRule,
-                                 llvm::None, &stride);
-    for (const auto *field : decl->fields()) {
-      AlignmentSizeCalculator alignmentCalc(astContext,
-                                            theEmitter.getSpirvOptions());
-      uint32_t fieldSize = 0, fieldAlignment = 0;
-      std::tie(fieldAlignment, fieldSize) = alignmentCalc.getAlignmentAndSize(
-          field->getType(), theEmitter.getSpirvOptions().sBufferLayoutRule,
-          /*isRowMajor*/ llvm::None, &stride);
-      fieldOffsetInBytes = roundToPow2(fieldOffsetInBytes, fieldAlignment);
-      auto *byteOffset = address.getByteAddress();
-      if (fieldOffsetInBytes != 0) {
-        byteOffset = spvBuilder.createBinaryOp(
-            spv::Op::OpIAdd, astContext.UnsignedIntTy, byteOffset,
-            spvBuilder.getConstantInt(astContext.UnsignedIntTy,
-                                      llvm::APInt(32, fieldOffsetInBytes)),
-            loc, range);
-      }
+    forEachSpirvField(
+        structType, spvType,
+        [this, &buffer, &address, range,
+         &loadedElems](size_t spirvFieldIndex, const QualType &fieldType,
+                       const auto &field) {
+          auto *baseOffset = address.getByteAddress();
+          if (field.offset.hasValue() && field.offset.getValue() != 0) {
+            const auto loc = buffer->getSourceLocation();
+            SpirvConstant *offset = spvBuilder.getConstantInt(
+                astContext.UnsignedIntTy,
+                llvm::APInt(32, field.offset.getValue()));
+            baseOffset = spvBuilder.createBinaryOp(
+                spv::Op::OpIAdd, astContext.UnsignedIntTy, baseOffset, offset,
+                loc, range);
+          }
 
-      loadedElems.push_back(processTemplatedLoadFromBuffer(
-          buffer, byteOffset, field->getType(), range));
-
-      fieldOffsetInBytes += fieldSize;
-    }
+          loadedElems.push_back(processTemplatedLoadFromBuffer(
+              buffer, baseOffset, fieldType, range));
+          return true;
+        });
 
     // After we're done with loading the entire struct, we need to update the
     // byteAddress (in case we are loading an array of structs).
@@ -322,6 +304,13 @@ SpirvInstruction *RawBufferHandler::processTemplatedLoadFromBuffer(
     // struct size = 34 bytes (34 / 8) = 4 full words (34 % 8) = 2 > 0,
     // therefore need to move to the next aligned address So the starting byte
     // offset after loading the entire struct is: 8 * (4 + 1) = 40
+    uint32_t structAlignment = 0, structSize = 0, stride = 0;
+    std::tie(structAlignment, structSize) =
+        AlignmentSizeCalculator(astContext, theEmitter.getSpirvOptions())
+            .getAlignmentAndSize(targetType,
+                                 theEmitter.getSpirvOptions().sBufferLayoutRule,
+                                 llvm::None, &stride);
+
     assert(structAlignment != 0);
     SpirvInstruction *structWidth = spvBuilder.getConstantInt(
         astContext.UnsignedIntTy,
@@ -436,39 +425,31 @@ void RawBufferHandler::store64Bits(SpirvInstruction *value,
   const auto loc = buffer->getSourceLocation();
   auto *constUint0 =
       spvBuilder.getConstantInt(astContext.UnsignedIntTy, llvm::APInt(32, 0));
-  auto *constUint32 =
-      spvBuilder.getConstantInt(astContext.UnsignedIntTy, llvm::APInt(32, 32));
 
+  // Bitcast the source into a 32-bit words composite.
+  const auto uintVec2Type =
+      astContext.getExtVectorType(astContext.UnsignedIntTy, 2);
+  auto *tmp = spvBuilder.createUnaryOp(spv::Op::OpBitcast, uintVec2Type, value,
+                                       loc, range);
+
+  // Extract the low and high word (careful! word order).
+  auto *A = spvBuilder.createCompositeExtract(astContext.UnsignedIntTy, tmp,
+                                              {0}, loc, range);
+  auto *B = spvBuilder.createCompositeExtract(astContext.UnsignedIntTy, tmp,
+                                              {1}, loc, range);
+
+  // Store the first word, and increment counter.
   auto *index = address.getWordIndex(loc, range);
-
-  // The underlying element type of the ByteAddressBuffer is uint. So we
-  // need to store two 32-bit values.
   auto *ptr = spvBuilder.createAccessChain(astContext.UnsignedIntTy, buffer,
                                            {constUint0, index}, loc, range);
-  // First convert the 64-bit value to uint64_t. Then extract two 32-bit words
-  // from it.
-  value = bitCastToNumericalOrBool(value, valueType,
-                                   astContext.UnsignedLongLongTy, loc, range);
-
-  // Use OpUConvert to perform truncation (produces the least significant bits).
-  SpirvInstruction *lsb = spvBuilder.createUnaryOp(
-      spv::Op::OpUConvert, astContext.UnsignedIntTy, value, loc, range);
-
-  // Shift uint64_t to the right by 32 bits and truncate to get the most
-  // significant bits.
-  SpirvInstruction *msb = spvBuilder.createUnaryOp(
-      spv::Op::OpUConvert, astContext.UnsignedIntTy,
-      spvBuilder.createBinaryOp(spv::Op::OpShiftRightLogical,
-                                astContext.UnsignedLongLongTy, value,
-                                constUint32, loc, range),
-      loc, range);
-
-  spvBuilder.createStore(ptr, lsb, loc, range);
+  spvBuilder.createStore(ptr, A, loc, range);
   address.incrementWordIndex(loc, range);
+
+  // Store the second word, and increment counter.
   index = address.getWordIndex(loc, range);
   ptr = spvBuilder.createAccessChain(astContext.UnsignedIntTy, buffer,
                                      {constUint0, index}, loc, range);
-  spvBuilder.createStore(ptr, msb, loc, range);
+  spvBuilder.createStore(ptr, B, loc, range);
   address.incrementWordIndex(loc, range);
 }
 
@@ -577,7 +558,7 @@ void RawBufferHandler::processTemplatedStoreToBuffer(SpirvInstruction *value,
       return;
     default:
       theEmitter.emitError(
-          "templated load of ByteAddressBuffer is only implemented for "
+          "templated store of ByteAddressBuffer is only implemented for "
           "16, 32, and 64-bit types",
           loc);
       return;
@@ -604,40 +585,36 @@ void RawBufferHandler::processTemplatedStoreToBuffer(SpirvInstruction *value,
   // aligned like their field with the largest alignment.
   // As a result, there might exist some padding after some struct members.
   if (const auto *structType = valueType->getAs<RecordType>()) {
-    const auto *decl = structType->getDecl();
-    uint32_t fieldOffsetInBytes = 0;
-    uint32_t structAlignment = 0, structSize = 0, stride = 0;
-    std::tie(structAlignment, structSize) =
-        AlignmentSizeCalculator(astContext, theEmitter.getSpirvOptions())
-            .getAlignmentAndSize(valueType,
-                                 theEmitter.getSpirvOptions().sBufferLayoutRule,
-                                 llvm::None, &stride);
-    uint32_t fieldIndex = 0;
-    for (const auto *field : decl->fields()) {
-      AlignmentSizeCalculator alignmentCalc(astContext,
-                                            theEmitter.getSpirvOptions());
-      uint32_t fieldSize = 0, fieldAlignment = 0;
-      std::tie(fieldAlignment, fieldSize) = alignmentCalc.getAlignmentAndSize(
-          field->getType(), theEmitter.getSpirvOptions().sBufferLayoutRule,
-          /*isRowMajor*/ llvm::None, &stride);
-      fieldOffsetInBytes = roundToPow2(fieldOffsetInBytes, fieldAlignment);
-      auto *byteOffset = address.getByteAddress();
-      if (fieldOffsetInBytes != 0) {
-        byteOffset = spvBuilder.createBinaryOp(
-            spv::Op::OpIAdd, astContext.UnsignedIntTy, byteOffset,
-            spvBuilder.getConstantInt(astContext.UnsignedIntTy,
-                                      llvm::APInt(32, fieldOffsetInBytes)),
-            loc, range);
-      }
+    LowerTypeVisitor lowerTypeVisitor(astContext, theEmitter.getSpirvContext(),
+                                      theEmitter.getSpirvOptions(), spvBuilder);
+    auto *decl = valueType->getAsTagDecl();
+    assert(decl && "Expected all structs to be tag decls.");
+    const StructType *spvType = dyn_cast<StructType>(lowerTypeVisitor.lowerType(
+        valueType, theEmitter.getSpirvOptions().sBufferLayoutRule, llvm::None,
+        decl->getLocation()));
+    assert(spvType);
+    forEachSpirvField(
+        structType, spvType,
+        [this, &address, loc, range, buffer, value](size_t spirvFieldIndex,
+                                                    const QualType &fieldType,
+                                                    const auto &field) {
+          auto *baseOffset = address.getByteAddress();
+          if (field.offset.hasValue() && field.offset.getValue() != 0) {
+            SpirvConstant *offset = spvBuilder.getConstantInt(
+                astContext.UnsignedIntTy,
+                llvm::APInt(32, field.offset.getValue()));
+            baseOffset = spvBuilder.createBinaryOp(
+                spv::Op::OpIAdd, astContext.UnsignedIntTy, baseOffset, offset,
+                loc, range);
+          }
 
-      processTemplatedStoreToBuffer(
-          spvBuilder.createCompositeExtract(field->getType(), value,
-                                            {fieldIndex}, loc, range),
-          buffer, byteOffset, field->getType(), range);
-
-      fieldOffsetInBytes += fieldSize;
-      ++fieldIndex;
-    }
+          processTemplatedStoreToBuffer(
+              spvBuilder.createCompositeExtract(
+                  fieldType, value, {static_cast<uint32_t>(spirvFieldIndex)},
+                  loc, range),
+              buffer, baseOffset, fieldType, range);
+          return true;
+        });
 
     // After we're done with storing the entire struct, we need to update the
     // byteAddress (in case we are storing an array of structs).
@@ -647,6 +624,13 @@ void RawBufferHandler::processTemplatedStoreToBuffer(SpirvInstruction *value,
     // (34 % 8) = 2 > 0, therefore need to move to the next aligned address
     // So the starting byte offset after loading the entire struct is:
     // 8 * (4 + 1) = 40
+    uint32_t structAlignment = 0, structSize = 0, stride = 0;
+    std::tie(structAlignment, structSize) =
+        AlignmentSizeCalculator(astContext, theEmitter.getSpirvOptions())
+            .getAlignmentAndSize(valueType,
+                                 theEmitter.getSpirvOptions().sBufferLayoutRule,
+                                 llvm::None, &stride);
+
     assert(structAlignment != 0);
     auto *structWidth = spvBuilder.getConstantInt(
         astContext.UnsignedIntTy,

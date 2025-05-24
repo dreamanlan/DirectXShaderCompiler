@@ -2,7 +2,6 @@
 # This file is distributed under the University of Illinois Open Source License. See LICENSE.TXT for details.
 
 add_hlsl_hctgen(DxcOptimizer OUTPUT DxcOptimizer.inc BUILD_DIR)
-add_hlsl_hctgen(DxilValidation OUTPUT DxilValidationImpl.inc BUILD_DIR)
 
 add_llvm_library(LLVMHLSL
   ComputeViewIdState.cpp
@@ -26,13 +25,13 @@ add_llvm_library(LLVMHLSL
   DxilNoops.cpp
   DxilPreserveAllOutputs.cpp
   DxilRenameResourcesPass.cpp
+  DxilScalarizeVectorLoadStores.cpp
   DxilSimpleGVNHoist.cpp
   DxilSignatureValidation.cpp
   DxilTargetLowering.cpp
   DxilTargetTransformInfo.cpp
   DxilTranslateRawBuffer.cpp
   DxilExportMap.cpp
-  DxilValidation.cpp
   DxcOptimizer.cpp
   HLDeadFunctionElimination.cpp
   HLExpandStoreIntrinsics.cpp

@@ -96,9 +96,13 @@ SpirvContext::~SpirvContext() {
   for (auto &typePair : typeTemplateParams)
     typePair.second->releaseMemory();
 
-  for (auto &pair : spirvIntrinsicTypes) {
+  for (auto &pair : spirvIntrinsicTypesById) {
     assert(pair.second);
     pair.second->~SpirvIntrinsicType();
+  }
+
+  for (auto *spirvIntrinsicType : spirvIntrinsicTypes) {
+    spirvIntrinsicType->~SpirvIntrinsicType();
   }
 }
 
@@ -324,6 +328,29 @@ const HybridPointerType *SpirvContext::getPointerType(QualType pointee,
   return result;
 }
 
+const ForwardPointerType *
+SpirvContext::getForwardPointerType(QualType pointee) {
+  assert(hlsl::IsVKBufferPointerType(pointee));
+
+  auto foundPointee = forwardPointerTypes.find(pointee);
+  if (foundPointee != forwardPointerTypes.end()) {
+    return foundPointee->second;
+  }
+
+  return forwardPointerTypes[pointee] = new (this) ForwardPointerType(pointee);
+}
+
+const SpirvPointerType *SpirvContext::getForwardReference(QualType type) {
+  return forwardReferences[type];
+}
+
+void SpirvContext::registerForwardReference(
+    QualType type, const SpirvPointerType *pointerType) {
+  assert(pointerType->getStorageClass() ==
+         spv::StorageClass::PhysicalStorageBuffer);
+  forwardReferences[type] = pointerType;
+}
+
 FunctionType *
 SpirvContext::getFunctionType(const SpirvType *ret,
                               llvm::ArrayRef<const SpirvType *> param) {
@@ -448,6 +475,21 @@ SpirvContext::getDebugTypeVector(const SpirvType *spirvType,
 }
 
 SpirvDebugType *
+SpirvContext::getDebugTypeMatrix(const SpirvType *spirvType,
+                                 SpirvDebugInstruction *vectorType,
+                                 uint32_t vectorCount) {
+  // Reuse existing debug type if possible.
+  if (debugTypes.find(spirvType) != debugTypes.end())
+    return debugTypes[spirvType];
+
+  auto *eTy = dyn_cast<SpirvDebugTypeVector>(vectorType);
+  assert(eTy && "Element type must be a SpirvDebugTypeVector.");
+  auto *debugType = new (this) SpirvDebugTypeMatrix(eTy, vectorCount);
+  debugTypes[spirvType] = debugType;
+  return debugType;
+}
+
+SpirvDebugType *
 SpirvContext::getDebugTypeFunction(const SpirvType *spirvType, uint32_t flags,
                                    SpirvDebugType *ret,
                                    llvm::ArrayRef<SpirvDebugType *> params) {
@@ -534,22 +576,41 @@ void SpirvContext::moveDebugTypesToModule(SpirvModule *module) {
   typeTemplateParams.clear();
 }
 
-const SpirvIntrinsicType *SpirvContext::getSpirvIntrinsicType(
+const SpirvIntrinsicType *SpirvContext::getOrCreateSpirvIntrinsicType(
     unsigned typeId, unsigned typeOpCode,
     llvm::ArrayRef<SpvIntrinsicTypeOperand> operands) {
-  if (spirvIntrinsicTypes[typeId] == nullptr) {
-    spirvIntrinsicTypes[typeId] =
+  if (spirvIntrinsicTypesById[typeId] == nullptr) {
+    spirvIntrinsicTypesById[typeId] =
         new (this) SpirvIntrinsicType(typeOpCode, operands);
   }
-  return spirvIntrinsicTypes[typeId];
+  return spirvIntrinsicTypesById[typeId];
+}
+
+const SpirvIntrinsicType *SpirvContext::getOrCreateSpirvIntrinsicType(
+    unsigned typeOpCode, llvm::ArrayRef<SpvIntrinsicTypeOperand> operands) {
+  SpirvIntrinsicType type(typeOpCode, operands);
+
+  auto found =
+      std::find_if(spirvIntrinsicTypes.begin(), spirvIntrinsicTypes.end(),
+                   [&type](const SpirvIntrinsicType *cachedType) {
+                     return type == *cachedType;
+                   });
+
+  if (found != spirvIntrinsicTypes.end())
+    return *found;
+
+  spirvIntrinsicTypes.push_back(new (this)
+                                    SpirvIntrinsicType(typeOpCode, operands));
+
+  return spirvIntrinsicTypes.back();
 }
 
 SpirvIntrinsicType *
 SpirvContext::getCreatedSpirvIntrinsicType(unsigned typeId) {
-  if (spirvIntrinsicTypes.find(typeId) == spirvIntrinsicTypes.end()) {
+  if (spirvIntrinsicTypesById.find(typeId) == spirvIntrinsicTypesById.end()) {
     return nullptr;
   }
-  return spirvIntrinsicTypes[typeId];
+  return spirvIntrinsicTypesById[typeId];
 }
 
 } // end namespace spirv

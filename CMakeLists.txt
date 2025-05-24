@@ -17,15 +17,6 @@ if(POLICY CMP0022)
   cmake_policy(SET CMP0022 NEW) # automatic when 2.8.12 is required
 endif()
 
-if (POLICY CMP0051)
-  # CMake 3.1 and higher include generator expressions of the form
-  # $<TARGETLIB:obj> in the SOURCES property.  These need to be
-  # stripped everywhere that access the SOURCES property, so we just
-  # defer to the OLD behavior of not including generator expressions
-  # in the output for now.
-  cmake_policy(SET CMP0051 OLD)
-endif()
-
 if(CMAKE_VERSION VERSION_LESS 3.1.20141117)
   set(cmake_3_2_USES_TERMINAL)
 else()
@@ -104,19 +95,26 @@ endif()
 option(DXC_DISABLE_ALLOCATOR_OVERRIDES "Disable usage of allocator overrides" OFF)
 mark_as_advanced(DXC_DISABLE_ALLOCATOR_OVERRIDES)
 
+option(DXC_CODEGEN_EXCEPTIONS_TRAP "An exception in code generation generates a trap, ending the compiler process" OFF)
+mark_as_advanced(DXC_CODEGEN_EXCEPTIONS_TRAP)
+
 # adjust link option to enable debugging from kernel mode; not compatible with incremental linking
-if(NOT CMAKE_VERSION VERSION_LESS "3.13" AND WIN32 AND NOT CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64EC")
+if(NOT CMAKE_VERSION VERSION_LESS "3.13" AND MSVC AND NOT CMAKE_C_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64EC")
   add_link_options(/DEBUGTYPE:CV,FIXUP,PDATA /INCREMENTAL:NO)
 endif()
 
 # enable control flow guard
 if(WIN32)
-add_compile_options(/guard:cf)
-add_link_options(/guard:cf)
+  if(MSVC)
+    add_compile_options(/guard:cf)
+    add_link_options(/guard:cf)
+  else()
+    add_compile_options(-fcf-protection)
+  endif()
 endif(WIN32)
 
 # Enable CET Shadow Stack
-if(WIN32 AND NOT (CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM.*"))
+if(MSVC AND NOT (CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM.*"))
   add_link_options(/CETCOMPAT)
 endif()
 
@@ -318,6 +316,9 @@ else()
   option(LLVM_ENABLE_ASSERTIONS "Enable assertions" ON)
 endif()
 
+option(LLVM_ASSERTIONS_TRAP "Force assertions to always trap, rather than the default unspecified behavior (e.g. RaiseException on Windows)" OFF)
+option(LLVM_ASSERTIONS_NO_STRINGS "Make assertion macro drops strings to reduce binary size" OFF)
+
 set(LLVM_ABI_BREAKING_CHECKS "WITH_ASSERTS" CACHE STRING
   "Enable abi-breaking checks.  Can be WITH_ASSERTS, FORCE_ON or FORCE_OFF.")
 
@@ -447,7 +448,7 @@ set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")
 include(HandleLLVMOptions)
 
 # Verify that we can find a Python 3 interpreter and force cmake to use it.
-find_package(PythonInterp 3 REQUIRED)
+find_package(Python3 REQUIRED)
 
 ######
 # LLVMBuild Integration
@@ -481,7 +482,7 @@ endif (LLVM_USE_OPROFILE)
 message(STATUS "Constructing LLVMBuild project information")
 
 execute_process(
-  COMMAND ${PYTHON_EXECUTABLE} ${LLVMBUILDTOOL}
+  COMMAND ${Python3_EXECUTABLE} ${LLVMBUILDTOOL}
             --native-target Unknown
             --enable-targets "${LLVM_TARGETS_TO_BUILD}"
             --enable-optional-components "${LLVMOPTIONALCOMPONENTS}"
@@ -616,9 +617,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 # HLSL Change Starts - override assert to RaiseException instead of abort
 # for better test behavior
-if(WIN32 AND NOT UNIX)
-  include_directories(BEFORE "${LLVM_MAIN_INCLUDE_DIR}/llvm/llvm_assert")
-endif()
+include_directories(BEFORE "${LLVM_MAIN_INCLUDE_DIR}/llvm/llvm_assert")
 # HLSL Change Ends
 
 include_directories( ${LLVM_INCLUDE_DIR} ${LLVM_MAIN_INCLUDE_DIR})
@@ -646,9 +645,9 @@ endif( ${CMAKE_SYSTEM_NAME} MATCHES SunOS )
 set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 
 # enable warnings as errors for debug build
-if (WIN32)
+if (MSVC)
   SET(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_CXX_FLAGS_DEBUG} /WX")
-endif (WIN32)
+endif (MSVC)
 
 include(AddLLVM)
 include(TableGen)
@@ -677,6 +676,8 @@ add_subdirectory(include/dxc)
 # This over-specifies the dependency graph, but since generating these doesn't
 # really depend on anything else in the build it is safe.
 list(APPEND LLVM_COMMON_DEPENDS HCTGen) 
+
+add_subdirectory(utils/hct)
 
 if(EXISTS "${LLVM_MAIN_SRC_DIR}/external")
   add_subdirectory(external) # SPIRV change

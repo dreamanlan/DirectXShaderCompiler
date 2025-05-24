@@ -46,7 +46,7 @@ void CapabilityVisitor::addCapability(spv::Capability cap, SourceLocation loc) {
 void CapabilityVisitor::addCapabilityForType(const SpirvType *type,
                                              SourceLocation loc,
                                              spv::StorageClass sc) {
-  // Defent against instructions that do not have a return type.
+  // Defend against instructions that do not have a return type.
   if (!type)
     return;
 
@@ -200,8 +200,10 @@ void CapabilityVisitor::addCapabilityForType(const SpirvType *type,
   }
   // Pointer type
   else if (const auto *ptrType = dyn_cast<SpirvPointerType>(type)) {
-    addCapabilityForType(ptrType->getPointeeType(), loc, sc);
-    if (sc == spv::StorageClass::PhysicalStorageBuffer) {
+    addCapabilityForType(ptrType->getPointeeType(), loc,
+                         ptrType->getStorageClass());
+    if (ptrType->getStorageClass() ==
+        spv::StorageClass::PhysicalStorageBuffer) {
       addExtension(Extension::KHR_physical_storage_buffer,
                    "SPV_KHR_physical_storage_buffer", loc);
       addCapability(spv::Capability::PhysicalStorageBufferAddresses);
@@ -387,6 +389,9 @@ bool CapabilityVisitor::visit(SpirvDecoration *decor) {
 
     break;
   }
+  case spv::Decoration::LinkageAttributes:
+    addCapability(spv::Capability::Linkage);
+    break;
   default:
     break;
   }
@@ -436,22 +441,6 @@ bool CapabilityVisitor::visit(SpirvImageSparseTexelsResident *instr) {
   return true;
 }
 
-namespace {
-bool isImageOpOnUnknownFormat(const SpirvImageOp *instruction) {
-  if (!instruction->getImage() || !instruction->getImage()->getResultType()) {
-    return false;
-  }
-
-  const ImageType *imageType =
-      dyn_cast<ImageType>(instruction->getImage()->getResultType());
-  if (!imageType || imageType->getImageFormat() != spv::ImageFormat::Unknown) {
-    return false;
-  }
-
-  return imageType->getImageFormat() == spv::ImageFormat::Unknown;
-}
-} // namespace
-
 bool CapabilityVisitor::visit(SpirvImageOp *instr) {
   addCapabilityForType(instr->getResultType(), instr->getSourceLocation(),
                        instr->getStorageClass());
@@ -459,13 +448,6 @@ bool CapabilityVisitor::visit(SpirvImageOp *instr) {
     addCapability(spv::Capability::ImageGatherExtended);
   if (instr->isSparse())
     addCapability(spv::Capability::SparseResidency);
-
-  if (isImageOpOnUnknownFormat(instr)) {
-    addCapability(instr->isImageWrite()
-                      ? spv::Capability::StorageImageWriteWithoutFormat
-                      : spv::Capability::StorageImageReadWithoutFormat);
-  }
-
   return true;
 }
 
@@ -654,7 +636,7 @@ bool CapabilityVisitor::visit(SpirvEntryPoint *entryPoint) {
   return true;
 }
 
-bool CapabilityVisitor::visit(SpirvExecutionMode *execMode) {
+bool CapabilityVisitor::visit(SpirvExecutionModeBase *execMode) {
   spv::ExecutionMode executionMode = execMode->getExecutionMode();
   SourceLocation execModeSourceLocation = execMode->getSourceLocation();
   SourceLocation entryPointSourceLocation =
@@ -717,6 +699,22 @@ bool CapabilityVisitor::visit(SpirvExecutionMode *execMode) {
                  "[[vk::stencil_ref_less_equal_back]]", execModeSourceLocation);
     addExtension(Extension::EXT_shader_stencil_export,
                  "[[vk::stencil_ref_less_equal_back]]", execModeSourceLocation);
+    break;
+  case spv::ExecutionMode::MaximallyReconvergesKHR:
+    addExtension(Extension::KHR_maximal_reconvergence, "",
+                 execModeSourceLocation);
+    break;
+  case spv::ExecutionMode::DenormPreserve:
+  case spv::ExecutionMode::DenormFlushToZero:
+    // KHR_float_controls was promoted to core in Vulkan 1.2.
+    if (!featureManager.isTargetEnvVulkan1p2OrAbove()) {
+      addExtension(Extension::KHR_float_controls, "SPV_KHR_float_controls",
+                   execModeSourceLocation);
+    }
+    addCapability(executionMode == spv::ExecutionMode::DenormPreserve
+                      ? spv::Capability::DenormPreserve
+                      : spv::Capability::DenormFlushToZero,
+                  execModeSourceLocation);
     break;
   default:
     break;
@@ -811,8 +809,6 @@ void CapabilityVisitor::AddVulkanMemoryModelForVolatile(SpirvDecoration *decor,
                    "Volatile builtin variable in raytracing", loc);
     }
     addCapability(spv::Capability::VulkanMemoryModel, loc);
-    spvBuilder.setMemoryModel(spv::AddressingModel::Logical,
-                              spv::MemoryModel::VulkanKHR);
   }
 }
 
@@ -833,16 +829,12 @@ bool CapabilityVisitor::visit(SpirvReadClock *inst) {
 }
 
 bool CapabilityVisitor::visit(SpirvModule *, Visitor::Phase phase) {
-  // If there are no entry-points in the module (hence shaderModel is not set),
-  // add the Linkage capability. This allows library shader models to use
-  // 'export' attribute on functions, and generate an "incomplete/partial"
-  // SPIR-V binary.
-  // ExecutionModel::Max means that no entrypoints exist, therefore we should
-  // add the Linkage Capability.
+  // If there are no entry-points in the module add the Shader capability.
+  // This allows library shader models with no entry pointer and just exported
+  // function. ExecutionModel::Max means that no entrypoints exist.
   if (phase == Visitor::Phase::Done &&
       shaderModel == spv::ExecutionModel::Max) {
     addCapability(spv::Capability::Shader);
-    addCapability(spv::Capability::Linkage);
   }
 
   // SPIRV-Tools now has a pass to trim superfluous capabilities. This means we
@@ -851,6 +843,8 @@ bool CapabilityVisitor::visit(SpirvModule *, Visitor::Phase phase) {
   // supports only some capabilities. This list should be expanded to match the
   // supported capabilities.
   addCapability(spv::Capability::MinLod);
+  addCapability(spv::Capability::StorageImageWriteWithoutFormat);
+  addCapability(spv::Capability::StorageImageReadWithoutFormat);
 
   addExtensionAndCapabilitiesIfEnabled(
       Extension::EXT_fragment_shader_interlock,
@@ -860,6 +854,12 @@ bool CapabilityVisitor::visit(SpirvModule *, Visitor::Phase phase) {
           spv::Capability::FragmentShaderShadingRateInterlockEXT,
       });
 
+  addExtensionAndCapabilitiesIfEnabled(
+      Extension::KHR_compute_shader_derivatives,
+      {
+          spv::Capability::ComputeDerivativeGroupQuadsKHR,
+          spv::Capability::ComputeDerivativeGroupLinearKHR,
+      });
   addExtensionAndCapabilitiesIfEnabled(
       Extension::NV_compute_shader_derivatives,
       {
@@ -877,6 +877,15 @@ bool CapabilityVisitor::visit(SpirvModule *, Visitor::Phase phase) {
     addExtensionAndCapabilitiesIfEnabled(Extension::KHR_ray_tracing,
                                          {spv::Capability::RayTracingKHR});
   }
+
+  addExtensionAndCapabilitiesIfEnabled(
+      Extension::NV_shader_subgroup_partitioned,
+      {spv::Capability::GroupNonUniformPartitionedNV});
+
+  addCapability(spv::Capability::InterpolationFunction);
+
+  addExtensionAndCapabilitiesIfEnabled(Extension::KHR_quad_control,
+                                       {spv::Capability::QuadControlKHR});
 
   return true;
 }

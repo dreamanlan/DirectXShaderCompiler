@@ -17,6 +17,7 @@
 #include "CGObjCRuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "dxc/Support/Path.h" // HLSL Change
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclObjC.h"
@@ -1042,14 +1043,28 @@ bool CGDebugInfo::TryCollectHLSLRecordElements(const RecordType *Ty,
     // extended vector type, which is represented as an array in DWARF.
     // However, we logically represent it as one field per component.
     QualType ElemQualTy = hlsl::GetHLSLVecElementType(QualTy);
+    unsigned AlignBits = CGM.getContext().getTypeAlign(ElemQualTy);
     unsigned VecSize = hlsl::GetHLSLVecSize(QualTy);
     unsigned ElemSizeInBits = CGM.getContext().getTypeSize(ElemQualTy);
+    unsigned CurrentAlignedOffset = 0;
+    SmallString<8> FieldNameBuf;
     for (unsigned ElemIdx = 0; ElemIdx < VecSize; ++ElemIdx) {
-      StringRef FieldName = StringRef(&"xyzw"[ElemIdx], 1);
-      unsigned OffsetInBits = ElemSizeInBits * ElemIdx;
-      llvm::DIType *FieldType = createFieldType(FieldName, ElemQualTy, 0,
-        SourceLocation(), AccessSpecifier::AS_public, OffsetInBits,
-        /* tunit */ nullptr, DITy, Ty->getDecl());
+      StringRef FieldName;
+      if (VecSize <= 4) {
+        FieldName = StringRef(&"xyzw"[ElemIdx], 1);
+      } else {
+        FieldNameBuf.clear();
+        llvm::raw_svector_ostream OS(FieldNameBuf);
+        OS << 'c' << ElemIdx;
+        FieldName = OS.str();
+      }
+      CurrentAlignedOffset =
+          llvm::RoundUpToAlignment(CurrentAlignedOffset, AlignBits);
+      llvm::DIType *FieldType =
+          createFieldType(FieldName, ElemQualTy, 0, SourceLocation(),
+                          AccessSpecifier::AS_public, CurrentAlignedOffset,
+                          /* tunit */ nullptr, DITy, Ty->getDecl());
+      CurrentAlignedOffset += ElemSizeInBits;
       Elements.emplace_back(FieldType);
     }
 
@@ -1115,16 +1130,9 @@ llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
   // "this" pointer is always first argument.
   const CXXRecordDecl *RD = ThisPtr->getPointeeCXXRecordDecl();
   if (isa<ClassTemplateSpecializationDecl>(RD)) {
-    // Create pointer type directly in this case.
     // HLSL Change Begin - This is a reference.
-    QualType PointeeTy = ThisPtr->getPointeeType();
-    unsigned AS = CGM.getContext().getTargetAddressSpace(PointeeTy);
-    uint64_t Size = CGM.getTarget().getPointerWidth(AS);
-    uint64_t Align = CGM.getContext().getTypeAlign(ThisPtr.getTypePtr());
+    llvm::DIType *ThisPtrType = getOrCreateType(ThisPtr, Unit);
     // HLSL Change End - This is a reference.
-    llvm::DIType *PointeeType = getOrCreateType(PointeeTy, Unit);
-    llvm::DIType *ThisPtrType =
-        DBuilder.createPointerType(PointeeType, Size, Align);
     TypeCache[ThisPtr.getAsOpaquePtr()].reset(ThisPtrType);
     // TODO: This and the artificial type below are misleading, the
     // types aren't artificial the argument is, but the current

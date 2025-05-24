@@ -630,6 +630,7 @@ bool Parser::MaybeParseHLSLAttributes(std::vector<hlsl::UnusualAnnotation *> &ta
       }
       hlsl::SemanticDecl *pUA = new (context) hlsl::SemanticDecl(semanticName);
       pUA->Loc = Tok.getLocation();
+      Actions.DiagnoseSemanticDecl(pUA);
       ConsumeToken(); // consume semantic
 
       target.push_back(pUA);
@@ -3876,6 +3877,7 @@ HLSLReservedKeyword:
     case tok::kw_precise:
     case tok::kw_sample:
     case tok::kw_globallycoherent:
+    case tok::kw_reordercoherent:
     case tok::kw_center:
     case tok::kw_indices:
     case tok::kw_vertices:
@@ -5320,6 +5322,7 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw_shared:
   case tok::kw_groupshared:
   case tok::kw_globallycoherent:
+  case tok::kw_reordercoherent:
   case tok::kw_uniform:
   case tok::kw_in:
   case tok::kw_out:
@@ -6124,6 +6127,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       switch (Tok.getKind()) {
       case tok::kw_center:
       case tok::kw_globallycoherent:
+      case tok::kw_reordercoherent:
       case tok::kw_precise:
       case tok::kw_sample:
       case tok::kw_indices:

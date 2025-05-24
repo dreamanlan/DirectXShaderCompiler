@@ -851,6 +851,12 @@ def HLSLGloballyCoherent : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
+def HLSLReorderCoherent : InheritableAttr {
+  let Spellings = [CXX11<"", "reordercoherent", 2015>];
+  let Subjects = SubjectList<[Var, Function]>;
+  let Documentation = [Undocumented];
+}
+
 def HLSLShader : InheritableAttr {
   let Spellings = [CXX11<"", "shader", 2017>];
   let Args = [StringArgument<"stage">]; // one of compute, pixel, vertex, hull, domain, geometry, node
@@ -908,8 +914,16 @@ def HLSLWaveSensitive : InheritableAttr {
 
 def HLSLWaveSize : InheritableAttr {
   let Spellings = [CXX11<"", "wavesize", 2017>];
-  let Args = [IntArgument<"Size">];
+  let Args = [IntArgument<"Min">, DefaultIntArgument<"Max", 0>, DefaultIntArgument<"Preferred", 0>];
   let Documentation = [Undocumented];
+
+  let AdditionalMembers = [{
+    private:
+    int SpelledArgsCount = 0;
+    public:
+      int getSpelledArgsCount() const { return SpelledArgsCount; }
+      void setSpelledArgsCount(int C) { SpelledArgsCount = C; }
+  }];
 }
 
 def HLSLWaveOpsIncludeHelperLanes : InheritableAttr {
@@ -929,6 +943,52 @@ def HLSLCXXOverload : InheritableAttr {
   let Spellings = [];
   let Subjects = SubjectList<[CXXMethod]>;
   let Documentation = [Undocumented];
+}
+
+def HLSLVector : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
+
+def HLSLMatrix : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
+
+def HLSLTessPatch : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Args = [BoolArgument<"IsInput">];
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
+
+def HLSLStreamOutput : InheritableAttr {
+  let Spellings = []; // No spellings!
+  // PrimVertices are the number of vertices that make up the streamed
+  // primitive. Points have 1. Lines have 2. Triangles have 3.
+  let Args = [UnsignedArgument<"PrimVertices">];
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
+
+def HLSLResource : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Args = [UnsignedArgument<"ResKindUint">,
+              UnsignedArgument<"ResClassUint">];
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+
+  // Add enum typed getters for safety and brevity.
+  let AdditionalMembers = [{
+  hlsl::DXIL::ResourceKind getResKind() const {
+    return (hlsl::DXIL::ResourceKind)getResKindUint();
+  }
+  hlsl::DXIL::ResourceClass getResClass() const {
+    return (hlsl::DXIL::ResourceClass)getResClassUint();
+  }
+  }];
 }
 
 def HLSLNodeLaunch : InheritableAttr {
@@ -1095,6 +1155,28 @@ def HLSLNodeObject : InheritableAttr {
     }];
 }
 
+// HLSL Ray Query Attribute
+
+def HLSLRayQueryObject : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
+
+def HLSLSubObject : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+  let Args = [UnsignedArgument<"SubObjKindUint">, UnsignedArgument<"HitGroupType">];
+}
+
+// HLSL HitObject Attribute
+
+def HLSLHitObject : InheritableAttr {
+  let Spellings = []; // No spellings!
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+}
 
 // HLSL Parameter Attributes
 
@@ -1250,14 +1332,13 @@ def ArrayOfBuffer
                   S->getType()->getAsArrayTypeUnsafe()->getElementType()->getAs<RecordType>()->getDecl()->getName() ==
                       "RasterizerOrderedBuffer")}]>;
 
-// Global variable with "Texture" or "SamplerState" type
+// Global variable with "Texture*" or "Sampler*" type
 def TextureOrSampler
     : SubsetSubject<
           Var, [{S->hasGlobalStorage() && S->getType()->getAs<RecordType>() &&
                  S->getType()->getAs<RecordType>()->getDecl() &&
                  (S->getType()->getAs<RecordType>()->getDecl()->getName().startswith("Texture") ||
-                  S->getType()->getAs<RecordType>()->getDecl()->getName() ==
-                      "SamplerState")}]>;
+                  S->getType()->getAs<RecordType>()->getDecl()->getName().startswith("Sampler"))}]>;
 
 def VKBuiltIn : InheritableAttr {
   let Spellings = [CXX11<"vk", "builtin">];
@@ -1310,7 +1391,7 @@ def VKBinding : InheritableAttr {
 
 def VKCapabilityExt : InheritableAttr {
   let Spellings = [CXX11<"vk", "ext_capability">];
-  let Subjects = SubjectList<[Function, Var], ErrorDiag>;
+  let Subjects = SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
   let Args = [IntArgument<"capability">];
   let LangOpts = [SPIRV];
   let Documentation = [Undocumented];
@@ -1334,7 +1415,8 @@ def VKDecorateExt : InheritableAttr {
 
 def VKDecorateIdExt : InheritableAttr {
   let Spellings = [CXX11<"vk", "ext_decorate_id">];
-  let Subjects = SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
+  let Subjects =
+      SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
   let Args = [UnsignedArgument<"decorate">, VariadicExprArgument<"arguments">];
   let LangOpts = [SPIRV];
   let Documentation = [Undocumented];
@@ -1342,7 +1424,8 @@ def VKDecorateIdExt : InheritableAttr {
 
 def VKDecorateStringExt : InheritableAttr {
   let Spellings = [CXX11<"vk", "ext_decorate_string">];
-  let Subjects = SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
+  let Subjects =
+      SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
   let Args = [UnsignedArgument<"decorate">, VariadicStringArgument<"arguments">];
   let LangOpts = [SPIRV];
   let Documentation = [Undocumented];
@@ -1350,7 +1433,7 @@ def VKDecorateStringExt : InheritableAttr {
 
 def VKExtensionExt : InheritableAttr {
   let Spellings = [CXX11<"vk", "ext_extension">];
-  let Subjects = SubjectList<[Function, Var], ErrorDiag>;
+  let Subjects = SubjectList<[Function, Var, ParmVar, Field, TypedefName], ErrorDiag>;
   let Args = [StringArgument<"name">];
   let LangOpts = [SPIRV];
   let Documentation = [Undocumented];
@@ -1368,6 +1451,20 @@ def VKStorageClassExt : InheritableAttr {
   let Spellings = [CXX11<"vk", "ext_storage_class">];
   let Subjects = SubjectList<[Var, ParmVar], ErrorDiag>;
   let Args = [UnsignedArgument<"stclass">];
+  let LangOpts = [SPIRV];
+  let Documentation = [Undocumented];
+}
+
+def VKBufferPointer : InheritableAttr {
+  let Spellings = [CXX11<"", "hlsl_vk_buffer_pointer", 2021>];
+  let LangOpts = [SPIRV];
+  let Documentation = [Undocumented];
+}
+
+def VKAliasedPointer : InheritableAttr {
+  let Spellings = [CXX11<"vk", "aliased_pointer">];
+  let Subjects = SubjectList<[Var, ParmVar], ErrorDiag>;
+  let Args = [];
   let LangOpts = [SPIRV];
   let Documentation = [Undocumented];
 }

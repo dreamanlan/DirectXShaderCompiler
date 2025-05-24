@@ -102,6 +102,9 @@ public:
   // Returns false otherwise (e.g. if the capability already existed).
   bool addCapability(SpirvCapability *cap);
 
+  // Returns true if the capability is in the module.
+  bool hasCapability(SpirvCapability &cap);
+
   // Set the memory model of the module.
   void setMemoryModel(SpirvMemoryModel *model);
 
@@ -116,11 +119,11 @@ public:
 
   // Returns an existing execution mode instruction that is the same as em if it
   // exists. Return nullptr otherwise.
-  SpirvExecutionMode *findExecutionMode(SpirvFunction *entryPoint,
-                                        spv::ExecutionMode em);
+  SpirvExecutionModeBase *findExecutionMode(SpirvFunction *entryPoint,
+                                            spv::ExecutionMode em);
 
   // Adds an execution mode to the module.
-  void addExecutionMode(SpirvExecutionMode *);
+  void addExecutionMode(SpirvExecutionModeBase *em);
 
   // Adds an extension to the module. Returns true if the extension was added.
   // Returns false otherwise (e.g. if the extension already existed).
@@ -141,6 +144,9 @@ public:
 
   // Adds a constant to the module.
   void addConstant(SpirvConstant *);
+
+  // Adds an Undef to the module.
+  void addUndef(SpirvUndef *);
 
   // Adds given string to the module which will be emitted via OpString.
   void addString(SpirvString *);
@@ -188,7 +194,7 @@ private:
   llvm::SmallVector<SpirvExtInstImport *, 1> extInstSets;
   SpirvMemoryModel *memoryModel;
   llvm::SmallVector<SpirvEntryPoint *, 1> entryPoints;
-  llvm::SmallVector<SpirvExecutionMode *, 4> executionModes;
+  llvm::SmallVector<SpirvExecutionModeBase *, 4> executionModes;
   llvm::SmallVector<SpirvString *, 4> constStrings;
   std::vector<SpirvSource *> sources;
   std::vector<SpirvModuleProcessed *> moduleProcesses;
@@ -202,6 +208,7 @@ private:
       decorations;
 
   std::vector<SpirvConstant *> constants;
+  std::vector<SpirvUndef *> undefs;
   std::vector<SpirvVariable *> variables;
   // A vector of functions in the module in the order that they should be
   // emitted. The order starts with the entry-point function followed by a

@@ -189,6 +189,9 @@ private:
 /// type, the fields with attached semantics will need to be translated into
 /// stage variables per Vulkan's requirements.
 class DeclResultIdMapper {
+  /// \brief An internal class to handle binding number allocation.
+  class BindingSet;
+
 public:
   inline DeclResultIdMapper(ASTContext &context, SpirvContext &spirvContext,
                             SpirvBuilder &spirvBuilder, SpirvEmitter &emitter,
@@ -204,6 +207,10 @@ public:
   /// from the builtin.
   SpirvVariable *getBuiltinVar(spv::BuiltIn builtIn, QualType type,
                                SourceLocation);
+
+  /// \brief If var is a raytracing stage variable, returns its entry point,
+  /// otherwise returns nullptr.
+  SpirvFunction *getRayTracingStageVarEntryFunction(SpirvVariable *var);
 
   /// \brief Creates the stage output variables by parsing the semantics
   /// attached to the given function's parameter or return value and returns
@@ -232,6 +239,9 @@ public:
   /// \brief Creates stage variables for raytracing.
   SpirvVariable *createRayTracingNVStageVar(spv::StorageClass sc,
                                             const VarDecl *decl);
+  SpirvVariable *createRayTracingNVStageVar(spv::StorageClass sc, QualType type,
+                                            std::string name, bool isPrecise,
+                                            bool isNointerp);
 
   /// \brief Creates the taskNV stage variables for payload struct variable
   /// and returns true on success. SPIR-V instructions will also be generated
@@ -270,8 +280,16 @@ public:
   SpirvVariable *createFileVar(const VarDecl *var,
                                llvm::Optional<SpirvInstruction *> init);
 
+  /// Creates a global variable for resource heaps containing elements of type
+  /// |type|.
+  SpirvVariable *createResourceHeap(const VarDecl *var, QualType type);
+
   /// \brief Creates an external-visible variable and returns its instruction.
   SpirvVariable *createExternVar(const VarDecl *var);
+
+  /// \brief Creates an external-visible variable of type |type| and returns its
+  /// instruction.
+  SpirvVariable *createExternVar(const VarDecl *var, QualType type);
 
   /// \brief Returns an OpString instruction that represents the given VarDecl.
   /// VarDecl must be a variable of string type.
@@ -368,6 +386,10 @@ public:
                                           ContextUsageKind kind);
   SpirvVariable *createShaderRecordBuffer(const HLSLBufferDecl *decl,
                                           ContextUsageKind kind);
+
+  // Records the TypedefDecl or TypeAliasDecl of vk::SpirvType so that any
+  // required capabilities and extensions can be added if the type is used.
+  void recordsSpirvTypeAlias(const Decl *decl);
 
 private:
   /// The struct containing SPIR-V information of a AST Decl.
@@ -494,11 +516,6 @@ public:
   bool writeBackOutputStream(const NamedDecl *decl, QualType type,
                              SpirvInstruction *value, SourceRange range = {});
 
-  /// \brief Negates to get the additive inverse of SV_Position.y if requested.
-  SpirvInstruction *invertYIfRequested(SpirvInstruction *position,
-                                       SourceLocation loc,
-                                       SourceRange range = {});
-
   /// \brief Reciprocates to get the multiplicative inverse of SV_Position.w
   /// if requested.
   SpirvInstruction *invertWIfRequested(SpirvInstruction *position,
@@ -542,6 +559,11 @@ public:
     return value;
   }
 
+  SpirvVariable *getMSOutIndicesBuiltin() {
+    assert(msOutIndicesBuiltin && "Variable usage before decl parsing.");
+    return msOutIndicesBuiltin;
+  }
+
   /// Decorate with spirv intrinsic attributes with lamda function variable
   /// check
   void decorateWithIntrinsicAttrs(
@@ -561,6 +583,12 @@ public:
                                   SpirvInstruction *ptr);
 
   spv::ExecutionMode getInterlockExecutionMode();
+
+  /// Records any Spir-V capabilities and extensions for the given type so
+  /// they will be added to the SPIR-V module. The capabilities and extension
+  /// required for the type will be sourced from the decls that were recorded
+  /// using `recordSpirvTypeAlias`.
+  void registerCapabilitiesAndExtensionsForType(const TypedefType *type);
 
 private:
   /// \brief Wrapper method to create a fatal error message and report it
@@ -619,6 +647,32 @@ private:
       llvm::function_ref<uint32_t(uint32_t)> nextLocs,
       llvm::DenseSet<StageVariableLocationInfo, StageVariableLocationInfo>
           *stageVariableLocationInfo);
+
+  /// \brief Get a valid BindingInfo. If no user provided binding info is given,
+  /// allocates a new binding and returns it.
+  static SpirvCodeGenOptions::BindingInfo getBindingInfo(
+      BindingSet &bindingSet,
+      const std::optional<SpirvCodeGenOptions::BindingInfo> &userProvidedInfo);
+
+  /// \brief Decorates used Resource/Sampler descriptor heaps with the correct
+  /// binding/set decorations.
+  void decorateResourceHeapsBindings(BindingSet &bindingSet);
+
+  /// \brief Returns a map that divides all of the shader stage variables into
+  /// separate vectors for each entry point.
+  llvm::DenseMap<const SpirvFunction *, SmallVector<StageVar, 8>>
+  getStageVarsPerFunction();
+
+  /// \brief Decorates all stage variables in `functionStageVars` with proper
+  /// location and returns true on success.
+  ///
+  /// It is assumed that all variables in `functionStageVars` belong to the same
+  /// entry point.
+  ///
+  /// This method will write the location assignment into the module under
+  /// construction.
+  bool finalizeStageIOLocationsForASingleEntryPoint(
+      bool forInput, ArrayRef<StageVar> functionStageVars);
 
   /// \brief Decorates all stage input (if forInput is true) or output (if
   /// forInput is false) variables with proper location and returns true on
@@ -748,24 +802,40 @@ private:
   SpirvVariable *getInstanceIdFromIndexAndBase(SpirvVariable *instanceIndexVar,
                                                SpirvVariable *baseInstanceVar);
 
+  // Creates a function scope variable to represent the "SV_VertexID"
+  // semantic, which is not immediately available in SPIR-V. Its value will be
+  // set by subtracting the values of the given InstanceIndex and base instance
+  // variables.
+  //
+  // vertexIndexVar: The SPIR-V input variable decorated with
+  // vertexIndex.
+  //
+  // baseVertexVar: The SPIR-V input variable decorated with
+  // BaseVertex.
+  SpirvVariable *getVertexIdFromIndexAndBase(SpirvVariable *vertexIndexVar,
+                                             SpirvVariable *baseVertexVar);
+
   // Creates and returns a variable that is the BaseInstance builtin input. The
   // variable is also added to the list of stage variable `this->stageVars`. Its
   // type will be a 32-bit integer.
-  //
-  // The semantic is a lie. We currently give it the semantic for the
-  // InstanceID. I'm not sure what would happen if we did not use a semantic, or
-  // tried to generate the correct one. I'm guessing there would be some issue
-  // with reflection.
-  //
-  // semantic: the semantic to attach to this variable
   //
   // sigPoint: the signature point identifying which shader stage the variable
   // will be used in.
   //
   // type: The type to use for the new variable. Must be int or unsigned int.
-  SpirvVariable *getBaseInstanceVariable(SemanticInfo *semantic,
-                                         const hlsl::SigPoint *sigPoint,
+  SpirvVariable *getBaseInstanceVariable(const hlsl::SigPoint *sigPoint,
                                          QualType type);
+
+  // Creates and returns a variable that is the BaseVertex builtin input. The
+  // variable is also added to the list of stage variable `this->stageVars`. Its
+  // type will be a 32-bit integer.
+  //
+  // sigPoint: the signature point identifying which shader stage the variable
+  // will be used in.
+  //
+  // type: The type to use for the new variable. Must be int or unsigned int.
+  SpirvVariable *getBaseVertexVariable(const hlsl::SigPoint *sigPoint,
+                                       QualType type);
 
   // Creates and return a new interface variable from the information provided.
   // The new variable with be add to `this->StageVars`.
@@ -916,6 +986,16 @@ private:
   /// views.
   void setInterlockExecutionMode(spv::ExecutionMode mode);
 
+  /// \brief Add |varInstr| to |astDecls| for every Decl for the variable |var|.
+  /// It is possible for a variable to have multiple declarations, and all of
+  /// them should be associated with the same variable.
+  void registerVariableForDecl(const VarDecl *var, SpirvInstruction *varInstr);
+
+  /// \brief Add |spirvInfo| to |astDecls| for every Decl for the variable
+  /// |var|. It is possible for a variable to have multiple declarations, and
+  /// all of them should be associated with the same variable.
+  void registerVariableForDecl(const VarDecl *var, DeclSpirvInfo spirvInfo);
+
 private:
   SpirvBuilder &spvBuilder;
   SpirvEmitter &theEmitter;
@@ -939,6 +1019,25 @@ private:
   /// creating that stage variable, so that we don't need to query them again
   /// for reading and writing.
   llvm::DenseMap<const ValueDecl *, SpirvVariable *> stageVarInstructions;
+
+  /// Special case for the Indices builtin:
+  /// - this builtin has a different layout in HLSL & SPIR-V, meaning it
+  /// requires
+  ///   the same kind of handling as classic stageVarInstructions:
+  ///   -> load into a HLSL compatible tmp
+  ///   -> write back into the SPIR-V compatible layout.
+  /// - but the builtin is shared across invocations (not only lanes).
+  ///   -> we must only write/read from the indices requested by the user.
+  /// - the variable can be passed to other functions as a out param
+  ///   -> we cannot copy-in/copy-out because shared across invocations.
+  ///   -> we cannot pass a simple pointer: layout differences between
+  ///   HLSL/SPIR-V.
+  ///
+  /// All this means we must keep track of the builtin, and each assignment to
+  /// this will have to handle the layout differences. The easiest solution is
+  /// to keep this builtin global to the module if present.
+  SpirvVariable *msOutIndicesBuiltin = nullptr;
+
   /// Vector of all defined resource variables.
   llvm::SmallVector<ResourceVar, 8> resourceVars;
   /// Mapping from {RW|Append|Consume}StructuredBuffers to their
@@ -969,6 +1068,11 @@ private:
   /// using HLSL intrinsic function calls. All other builtin variables are
   /// accessed using stage IO variables.
   llvm::DenseMap<uint32_t, SpirvVariable *> builtinToVarMap;
+
+  /// Maps from a raytracing stage variable to the entry point that variable is
+  /// for.
+  llvm::DenseMap<SpirvVariable *, SpirvFunction *>
+      rayTracingStageVarToEntryPoints;
 
   /// Whether the translated SPIR-V binary needs legalization.
   ///
@@ -1030,6 +1134,8 @@ private:
 
   uint32_t perspBaryCentricsIndex, noPerspBaryCentricsIndex;
 
+  llvm::SmallVector<const TypedefNameDecl *, 4> typeAliasesWithAttributes;
+
 public:
   /// The gl_PerVertex structs for both input and output
   GlPerVertex glPerVertex;
@@ -1074,8 +1180,7 @@ bool DeclResultIdMapper::decorateStageIOLocations() {
 }
 
 bool DeclResultIdMapper::isInputStorageClass(const StageVar &v) {
-  return getStorageClassForSigPoint(v.getSigPoint()) ==
-         spv::StorageClass::Input;
+  return v.getStorageClass() == spv::StorageClass::Input;
 }
 
 void DeclResultIdMapper::createFnParamCounterVar(const VarDecl *param) {

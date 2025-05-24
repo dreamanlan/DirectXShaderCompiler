@@ -53,6 +53,7 @@ public:
     TK_RuntimeArray,
     TK_Struct,
     TK_Pointer,
+    TK_ForwardPointer,
     TK_Function,
     TK_AccelerationStructureNV,
     TK_RayQueryKHR,
@@ -302,11 +303,12 @@ public:
               llvm::Optional<uint32_t> offset_ = llvm::None,
               llvm::Optional<uint32_t> matrixStride_ = llvm::None,
               llvm::Optional<bool> isRowMajor_ = llvm::None,
-              bool relaxedPrecision = false, bool precise = false)
+              bool relaxedPrecision = false, bool precise = false,
+              llvm::Optional<AttrVec> attributes = llvm::None)
         : type(type_), fieldIndex(fieldIndex_), name(name_), offset(offset_),
           sizeInBytes(llvm::None), matrixStride(matrixStride_),
           isRowMajor(isRowMajor_), isRelaxedPrecision(relaxedPrecision),
-          isPrecise(precise) {
+          isPrecise(precise), bitfield(llvm::None), attributes(attributes) {
       // A StructType may not contain any hybrid types.
       assert(!isa<HybridType>(type_));
     }
@@ -335,6 +337,8 @@ public:
     bool isPrecise;
     // Information about the bitfield (if applicable).
     llvm::Optional<BitfieldInfo> bitfield;
+    // Other attributes applied to the field.
+    llvm::Optional<AttrVec> attributes;
   };
 
   StructType(
@@ -384,6 +388,26 @@ private:
   spv::StorageClass storageClass;
 };
 
+/// Represents a SPIR-V forwarding pointer type.
+class ForwardPointerType : public SpirvType {
+public:
+  ForwardPointerType(QualType pointee)
+      : SpirvType(TK_ForwardPointer), pointeeType(pointee) {}
+
+  static bool classof(const SpirvType *t) {
+    return t->getKind() == TK_ForwardPointer;
+  }
+
+  const QualType getPointeeType() const { return pointeeType; }
+
+  bool operator==(const ForwardPointerType &that) const {
+    return pointeeType == that.pointeeType;
+  }
+
+private:
+  const QualType pointeeType;
+};
+
 /// Represents a SPIR-V function type. None of the parameters nor the return
 /// type is allowed to be a hybrid type.
 class FunctionType : public SpirvType {
@@ -429,15 +453,16 @@ public:
 
 class SpirvInstruction;
 struct SpvIntrinsicTypeOperand {
-  SpvIntrinsicTypeOperand(SpirvType *type_operand)
+  SpvIntrinsicTypeOperand(const SpirvType *type_operand)
       : operand_as_type(type_operand), isTypeOperand(true) {}
   SpvIntrinsicTypeOperand(SpirvInstruction *inst_operand)
       : operand_as_inst(inst_operand), isTypeOperand(false) {}
+  bool operator==(const SpvIntrinsicTypeOperand &that) const;
   union {
-    SpirvType *operand_as_type;
+    const SpirvType *operand_as_type;
     SpirvInstruction *operand_as_inst;
   };
-  bool isTypeOperand;
+  const bool isTypeOperand;
 };
 
 class SpirvIntrinsicType : public SpirvType {
@@ -451,6 +476,12 @@ public:
   unsigned getOpCode() const { return typeOpCode; }
   llvm::ArrayRef<SpvIntrinsicTypeOperand> getOperands() const {
     return operands;
+  }
+
+  bool operator==(const SpirvIntrinsicType &that) const {
+    return typeOpCode == that.typeOpCode &&
+           operands.size() == that.operands.size() &&
+           std::equal(operands.begin(), operands.end(), that.operands.begin());
   }
 
 private:
@@ -482,10 +513,11 @@ public:
               hlsl::ConstantPacking *packOffset = nullptr,
               const hlsl::RegisterAssignment *regC = nullptr,
               bool precise = false,
-              llvm::Optional<BitfieldInfo> bitfield = llvm::None)
+              llvm::Optional<BitfieldInfo> bitfield = llvm::None,
+              llvm::Optional<AttrVec> attributes = llvm::None)
         : astType(astType_), name(name_), vkOffsetAttr(offset),
           packOffsetAttr(packOffset), registerC(regC), isPrecise(precise),
-          bitfield(std::move(bitfield)) {}
+          bitfield(std::move(bitfield)), attributes(std::move(attributes)) {}
 
     // The field's type.
     QualType astType;
@@ -502,6 +534,8 @@ public:
     // Whether this field is a bitfield or not. If set to false, bitfield width
     // value is undefined.
     llvm::Optional<BitfieldInfo> bitfield;
+    // Other attributes applied to the field.
+    llvm::Optional<AttrVec> attributes;
   };
 
   HybridStructType(

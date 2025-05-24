@@ -4,6 +4,7 @@
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
+//
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_CLANG_SPIRV_SPIRVINSTRUCTION_H
 #define LLVM_CLANG_SPIRV_SPIRVINSTRUCTION_H
@@ -53,6 +54,7 @@ public:
     IK_MemoryModel,     // OpMemoryModel
     IK_EntryPoint,      // OpEntryPoint
     IK_ExecutionMode,   // OpExecutionMode
+    IK_ExecutionModeId, // OpExecutionModeId
     IK_String,          // OpString (debug)
     IK_Source,          // OpSource (debug)
     IK_ModuleProcessed, // OpModuleProcessed (debug)
@@ -66,6 +68,13 @@ public:
     IK_ConstantFloat,
     IK_ConstantComposite,
     IK_ConstantNull,
+
+    // Pointer <-> uint conversions.
+    IK_ConvertPtrToU,
+    IK_ConvertUToPtr,
+
+    // OpUndef
+    IK_Undef,
 
     // Function structure kinds
 
@@ -111,11 +120,7 @@ public:
 
     IK_SetMeshOutputsEXT, // OpSetMeshOutputsEXT
 
-    // The following section is for group non-uniform instructions.
-    // Used by LLVM-style RTTI; order matters.
-    IK_GroupNonUniformBinaryOp, // Group non-uniform binary operations
-    IK_GroupNonUniformElect,    // OpGroupNonUniformElect
-    IK_GroupNonUniformUnaryOp,  // Group non-uniform unary operations
+    IK_GroupNonUniformOp, // Group non-uniform operations
 
     IK_ImageOp,                   // OpImage*
     IK_ImageQuery,                // OpImageQuery*
@@ -154,6 +159,7 @@ public:
     IK_DebugTypeBasic,
     IK_DebugTypeArray,
     IK_DebugTypeVector,
+    IK_DebugTypeMatrix,
     IK_DebugTypeFunction,
     IK_DebugTypeComposite,
     IK_DebugTypeMember,
@@ -396,12 +402,34 @@ private:
   llvm::SmallVector<SpirvVariable *, 8> interfaceVec;
 };
 
+class SpirvExecutionModeBase : public SpirvInstruction {
+public:
+  SpirvExecutionModeBase(Kind kind, spv::Op opcode, SourceLocation loc,
+                         SpirvFunction *entryPointFunction,
+                         spv::ExecutionMode executionMode)
+      : SpirvInstruction(kind, opcode, QualType(), loc),
+        entryPoint(entryPointFunction), execMode(executionMode) {}
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvExecutionModeBase)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) { return false; }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  SpirvFunction *getEntryPoint() const { return entryPoint; }
+  spv::ExecutionMode getExecutionMode() const { return execMode; }
+
+private:
+  SpirvFunction *entryPoint;
+  spv::ExecutionMode execMode;
+};
+
 /// \brief OpExecutionMode and OpExecutionModeId instructions
-class SpirvExecutionMode : public SpirvInstruction {
+class SpirvExecutionMode : public SpirvExecutionModeBase {
 public:
   SpirvExecutionMode(SourceLocation loc, SpirvFunction *entryPointFunction,
-                     spv::ExecutionMode, llvm::ArrayRef<uint32_t> params,
-                     bool usesIdParams);
+                     spv::ExecutionMode, llvm::ArrayRef<uint32_t> params);
 
   DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvExecutionMode)
 
@@ -412,14 +440,32 @@ public:
 
   bool invokeVisitor(Visitor *v) override;
 
-  SpirvFunction *getEntryPoint() const { return entryPoint; }
-  spv::ExecutionMode getExecutionMode() const { return execMode; }
   llvm::ArrayRef<uint32_t> getParams() const { return params; }
 
 private:
-  SpirvFunction *entryPoint;
-  spv::ExecutionMode execMode;
   llvm::SmallVector<uint32_t, 4> params;
+};
+
+/// \brief OpExecutionModeId
+class SpirvExecutionModeId : public SpirvExecutionModeBase {
+public:
+  SpirvExecutionModeId(SourceLocation loc, SpirvFunction *entryPointFunction,
+                       spv::ExecutionMode em,
+                       llvm::ArrayRef<SpirvInstruction *> params);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvExecutionModeId)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_ExecutionModeId;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  llvm::ArrayRef<SpirvInstruction *> getParams() const { return params; }
+
+private:
+  llvm::SmallVector<SpirvInstruction *, 4> params;
 };
 
 /// \brief OpString instruction
@@ -837,7 +883,8 @@ public:
 
   SpirvInstruction *getSelector() const { return selector; }
   SpirvBasicBlock *getDefaultLabel() const { return defaultLabel; }
-  llvm::ArrayRef<std::pair<llvm::APInt, SpirvBasicBlock *>> getTargets() const {
+  llvm::MutableArrayRef<std::pair<llvm::APInt, SpirvBasicBlock *>>
+  getTargets() {
     return targets;
   }
   // Returns the branch label that will be taken for the given literal.
@@ -1140,7 +1187,7 @@ class SpirvBitFieldExtract : public SpirvBitField {
 public:
   SpirvBitFieldExtract(QualType resultType, SourceLocation loc,
                        SpirvInstruction *base, SpirvInstruction *offset,
-                       SpirvInstruction *count, bool isSigned);
+                       SpirvInstruction *count);
 
   DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvBitFieldExtract)
 
@@ -1150,10 +1197,6 @@ public:
   }
 
   bool invokeVisitor(Visitor *v) override;
-
-  uint32_t isSigned() const {
-    return getopcode() == spv::Op::OpBitFieldSExtract;
-  }
 };
 
 class SpirvBitFieldInsert : public SpirvBitField {
@@ -1191,6 +1234,8 @@ public:
     return inst->getKind() >= IK_ConstantBoolean &&
            inst->getKind() <= IK_ConstantNull;
   }
+
+  bool operator==(const SpirvConstant &that) const;
 
   bool isSpecConstant() const;
   void setLiteral(bool literal = true) { literalConstant = literal; }
@@ -1305,6 +1350,66 @@ public:
   }
 
   bool operator==(const SpirvConstantNull &that) const;
+};
+
+class SpirvConvertPtrToU : public SpirvInstruction {
+public:
+  SpirvConvertPtrToU(SpirvInstruction *ptr, QualType type,
+                     SourceLocation loc = {}, SourceRange range = {});
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvConvertPtrToU)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_ConvertPtrToU;
+  }
+
+  bool operator==(const SpirvConvertPtrToU &that) const;
+
+  bool invokeVisitor(Visitor *v) override;
+
+  SpirvInstruction *getPtr() const { return ptr; }
+
+private:
+  SpirvInstruction *ptr;
+};
+
+class SpirvConvertUToPtr : public SpirvInstruction {
+public:
+  SpirvConvertUToPtr(SpirvInstruction *intValue, QualType type,
+                     SourceLocation loc = {}, SourceRange range = {});
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvConvertUToPtr)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_ConvertUToPtr;
+  }
+
+  bool operator==(const SpirvConvertUToPtr &that) const;
+
+  bool invokeVisitor(Visitor *v) override;
+
+  SpirvInstruction *getVal() const { return val; }
+
+private:
+  SpirvInstruction *val;
+};
+
+class SpirvUndef : public SpirvInstruction {
+public:
+  SpirvUndef(QualType type);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvUndef)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_Undef;
+  }
+
+  bool operator==(const SpirvUndef &that) const;
+
+  bool invokeVisitor(Visitor *v) override;
 };
 
 /// \brief OpCompositeConstruct instruction
@@ -1496,102 +1601,45 @@ private:
   llvm::SmallVector<SpirvInstruction *, 4> args;
 };
 
-/// \brief Base for OpGroupNonUniform* instructions
+/// \brief OpGroupNonUniform* instructions
 class SpirvGroupNonUniformOp : public SpirvInstruction {
 public:
-  // For LLVM-style RTTI
-  static bool classof(const SpirvInstruction *inst) {
-    return inst->getKind() >= IK_GroupNonUniformBinaryOp &&
-           inst->getKind() <= IK_GroupNonUniformUnaryOp;
-  }
+  SpirvGroupNonUniformOp(spv::Op opcode, QualType resultType,
+                         llvm::Optional<spv::Scope> scope,
+                         llvm::ArrayRef<SpirvInstruction *> operands,
+                         SourceLocation loc,
+                         llvm::Optional<spv::GroupOperation> group);
 
-  spv::Scope getExecutionScope() const { return execScope; }
-
-protected:
-  SpirvGroupNonUniformOp(Kind kind, spv::Op opcode, QualType resultType,
-                         SourceLocation loc, spv::Scope scope);
-
-private:
-  spv::Scope execScope;
-};
-
-/// \brief OpGroupNonUniform* binary instructions.
-class SpirvNonUniformBinaryOp : public SpirvGroupNonUniformOp {
-public:
-  SpirvNonUniformBinaryOp(spv::Op opcode, QualType resultType,
-                          SourceLocation loc, spv::Scope scope,
-                          SpirvInstruction *arg1, SpirvInstruction *arg2);
-
-  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvNonUniformBinaryOp)
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvGroupNonUniformOp)
 
   // For LLVM-style RTTI
   static bool classof(const SpirvInstruction *inst) {
-    return inst->getKind() == IK_GroupNonUniformBinaryOp;
+    return inst->getKind() == IK_GroupNonUniformOp;
   }
 
   bool invokeVisitor(Visitor *v) override;
 
-  SpirvInstruction *getArg1() const { return arg1; }
-  SpirvInstruction *getArg2() const { return arg2; }
-  void replaceOperand(
-      llvm::function_ref<SpirvInstruction *(SpirvInstruction *)> remapOp,
-      bool inEntryFunctionWrapper) override {
-    arg1 = remapOp(arg1);
-    arg2 = remapOp(arg2);
-  }
+  bool hasExecutionScope() const { return execScope.hasValue(); }
+  spv::Scope getExecutionScope() const { return execScope.getValue(); }
 
-private:
-  SpirvInstruction *arg1;
-  SpirvInstruction *arg2;
-};
+  llvm::ArrayRef<SpirvInstruction *> getOperands() const { return operands; }
 
-/// \brief OpGroupNonUniformElect instruction. This is currently the only
-/// non-uniform instruction that takes no other arguments.
-class SpirvNonUniformElect : public SpirvGroupNonUniformOp {
-public:
-  SpirvNonUniformElect(QualType resultType, SourceLocation loc,
-                       spv::Scope scope);
-
-  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvNonUniformElect)
-
-  // For LLVM-style RTTI
-  static bool classof(const SpirvInstruction *inst) {
-    return inst->getKind() == IK_GroupNonUniformElect;
-  }
-
-  bool invokeVisitor(Visitor *v) override;
-};
-
-/// \brief OpGroupNonUniform* unary instructions.
-class SpirvNonUniformUnaryOp : public SpirvGroupNonUniformOp {
-public:
-  SpirvNonUniformUnaryOp(spv::Op opcode, QualType resultType,
-                         SourceLocation loc, spv::Scope scope,
-                         llvm::Optional<spv::GroupOperation> group,
-                         SpirvInstruction *arg);
-
-  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvNonUniformUnaryOp)
-
-  // For LLVM-style RTTI
-  static bool classof(const SpirvInstruction *inst) {
-    return inst->getKind() == IK_GroupNonUniformUnaryOp;
-  }
-
-  bool invokeVisitor(Visitor *v) override;
-
-  SpirvInstruction *getArg() const { return arg; }
   bool hasGroupOp() const { return groupOp.hasValue(); }
   spv::GroupOperation getGroupOp() const { return groupOp.getValue(); }
+
   void replaceOperand(
       llvm::function_ref<SpirvInstruction *(SpirvInstruction *)> remapOp,
       bool inEntryFunctionWrapper) override {
-    arg = remapOp(arg);
+    for (auto *operand : getOperands()) {
+      operand = remapOp(operand);
+    }
     if (inEntryFunctionWrapper)
-      setAstResultType(arg->getAstResultType());
+      setAstResultType(getOperands()[0]->getAstResultType());
   }
 
 private:
-  SpirvInstruction *arg;
+  llvm::Optional<spv::Scope> execScope;
+  llvm::SmallVector<SpirvInstruction *, 4> operands;
   llvm::Optional<spv::GroupOperation> groupOp;
 };
 
@@ -2922,6 +2970,31 @@ public:
 private:
   SpirvDebugType *elementType;
   uint32_t elementCount;
+};
+
+/// Represents matrix debug types
+class SpirvDebugTypeMatrix : public SpirvDebugType {
+public:
+  SpirvDebugTypeMatrix(SpirvDebugTypeVector *vectorType, uint32_t vectorCount);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvDebugTypeMatrix)
+
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_DebugTypeMatrix;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  SpirvDebugTypeVector *getVectorType() const { return vectorType; }
+  uint32_t getVectorCount() const { return vectorCount; }
+
+  uint32_t getSizeInBits() const override {
+    return vectorCount * vectorType->getSizeInBits();
+  }
+
+private:
+  SpirvDebugTypeVector *vectorType;
+  uint32_t vectorCount;
 };
 
 /// Represents a function debug type. Includes the function return type and

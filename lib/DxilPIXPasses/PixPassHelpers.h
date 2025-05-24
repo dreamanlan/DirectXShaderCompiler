@@ -9,20 +9,40 @@
 
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #include "dxc/DXIL/DxilModule.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 
-//#define PIX_DEBUG_DUMP_HELPER
+// #define PIX_DEBUG_DUMP_HELPER
 #ifdef PIX_DEBUG_DUMP_HELPER
 #include "dxc/Support/Global.h"
 #endif
 
 namespace PIXPassHelpers {
-bool IsAllocateRayQueryInstruction(llvm::Value *Val);
-llvm::CallInst *CreateUAV(hlsl::DxilModule &DM, llvm::IRBuilder<> &Builder,
-                          unsigned int registerId, const char *name);
+
+class ScopedInstruction {
+  llvm::Instruction *m_Instruction;
+
+public:
+  ScopedInstruction(llvm::Instruction *I) : m_Instruction(I) {}
+  ~ScopedInstruction() { delete m_Instruction; }
+  llvm::Instruction *Get() const { return m_Instruction; }
+};
+
+void FindRayQueryHandlesForFunction(
+    llvm::Function *F, llvm::SmallPtrSetImpl<llvm::Value *> &RayQueryHandles);
+enum class PixUAVHandleMode { NonLib, Lib };
+llvm::CallInst *CreateUAVOnceForModule(hlsl::DxilModule &DM,
+                                       llvm::IRBuilder<> &Builder,
+                                       unsigned int hlslBindIndex,
+                                       const char *name);
+hlsl::DxilResource *CreateGlobalUAVResource(hlsl::DxilModule &DM,
+                                            unsigned int hlslBindIndex,
+                                            const char *name);
 llvm::CallInst *CreateHandleForResource(hlsl::DxilModule &DM,
                                         llvm::IRBuilder<> &Builder,
                                         hlsl::DxilResourceBase *resource,
@@ -61,4 +81,10 @@ ExpandedStruct ExpandStructType(llvm::LLVMContext &Ctx,
                                 llvm::Type *OriginalPayloadStructType);
 void ReplaceAllUsesOfInstructionWithNewValueAndDeleteInstruction(
     llvm::Instruction *Instr, llvm::Value *newValue, llvm::Type *newType);
+unsigned int FindOrAddSV_Position(hlsl::DxilModule &DM,
+                                  unsigned UpStreamSVPosRow);
+void ForEachDynamicallyIndexedResource(
+    hlsl::DxilModule &DM,
+    const std::function<bool(bool, llvm::Instruction *, llvm::Value *)>
+        &Visitor);
 } // namespace PIXPassHelpers

@@ -1751,7 +1751,13 @@ void hlsl::CustomDslPrintHLSLAttr(const clang::Attr *A, llvm::raw_ostream &Out,
   case clang::attr::HLSLWaveSize: {
     Attr *noconst = const_cast<Attr *>(A);
     HLSLWaveSizeAttr *ACast = static_cast<HLSLWaveSizeAttr *>(noconst);
-    Out << "[wavesize(" << ACast->getSize() << ")], ";
+    Out << "[wavesize(" << ACast->getMin();
+    if (ACast->getMax() > 0) {
+      Out << ", " << ACast->getMax();
+      if (ACast->getPreferred() > 0)
+        Out << ", " << ACast->getPreferred();
+    }
+    Out << ")], ";
     break;
   }
 

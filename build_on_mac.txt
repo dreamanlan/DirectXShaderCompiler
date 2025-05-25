@@ -1,3 +1,20 @@
+[2025.5.26 update]
+================================================================================================================================================================================
+1、spirv相关编译错误已经不会出现
+2、新的编译错误主要是WinAdapter.h里的定义与external/DirectX-Headers/include/wsl/stubs/目录下的basetsd.h和rpcndr.h里的定义冲突
+目前在rpcndr.h中采用判断LLVM_SUPPORT_WIN_ADAPTER_H宏是否存在的办法来跳过冲突的定义（__RPCNDR_H_VERSION__的定义需要保留）：
+#pragma once
+#define __RPCNDR_H_VERSION__
+
+#ifndef LLVM_SUPPORT_WIN_ADAPTER_H
+
+...//rpcndr.h的全部定义内容
+
+#endif //LLVM_SUPPORT_WIN_ADAPTER_H
+
+
+[old info for version before 2025]
+================================================================================================================================================================================
 1、在源码根目录DirectXShaderCompiler的同级建立一个目录 dxcbuild
 2、拷备 builddxc.sh 到源码根目录的上一级目录
 3、在源码根目录执行（这步似乎也不解决编译错误，可选操作吧。另 Directx-Headers 编译会报错，更新后回退相关修改）

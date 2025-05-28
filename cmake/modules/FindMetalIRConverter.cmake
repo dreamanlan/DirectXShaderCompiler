@@ -1,5 +1,6 @@
 find_path(METAL_IRCONVERTER_INCLUDE_DIR metal_irconverter.h
           HINTS /usr/local/include/metal_irconverter
+          PATHS ${METAL_IRCONVERTER_ROOT}/include/metal_irconverter
           DOC "Path to metal IR converter headers"
           )
 

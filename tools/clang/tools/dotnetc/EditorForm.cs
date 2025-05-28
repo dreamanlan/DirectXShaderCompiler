@@ -137,6 +137,7 @@ namespace MainNs
                 if (this.rewriterOutputTabPage == null)
                 {
                     this.rewriterOutputTabPage = new TabPage("Rewriter Output");
+                    this.RewriterOutputTabPage.Controls.Add(this.RewriterOutputTextBox);
                     this.AnalysisTabControl.TabPages.Add(rewriterOutputTabPage);
                 }
                 return this.rewriterOutputTabPage;

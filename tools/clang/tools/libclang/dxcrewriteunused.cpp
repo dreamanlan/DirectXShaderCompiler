@@ -1138,6 +1138,9 @@ void PreprocessResult(CompilerInstance &compiler, LPCSTR pFileName) {
   PPOutOpts.ShowMacroComments = 0; // Show comments, even in macros.
   PPOutOpts.ShowMacros = 0;        // Print macro definitions.
   PPOutOpts.RewriteIncludes = 0;   // Preprocess include directives only.
+  // Dsl Change Begin
+  PPOutOpts.RewriteDSL = 1;
+  // Dsl Change End
 
   FrontendInputFile file(pFileName, IK_HLSL);
   clang::PrintPreprocessedAction action;

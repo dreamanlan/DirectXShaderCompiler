@@ -95,12 +95,15 @@ private:
   bool DumpDefines;
   bool UseLineDirectives;
   bool IsFirstFileEntered;
+  // Dsl Change Begin
+  bool RewriteDSL;
+  // Dsl Change End
 public:
   PrintPPOutputPPCallbacks(Preprocessor &pp, raw_ostream &os, bool lineMarkers,
-                           bool defines, bool UseLineDirectives)
+                           bool defines, bool UseLineDirectives, bool rewriteDSL)
       : PP(pp), SM(PP.getSourceManager()), ConcatInfo(PP), OS(os),
         DisableLineMarkers(lineMarkers), DumpDefines(defines),
-        UseLineDirectives(UseLineDirectives) {
+        UseLineDirectives(UseLineDirectives), RewriteDSL(rewriteDSL) {
     CurLine = 0;
     CurFilename += "<uninit>";
     EmittedTokensOnThisLine = false;
@@ -179,6 +182,14 @@ void PrintPPOutputPPCallbacks::WriteLineInfo(unsigned LineNo,
   startNewLineIfNeeded(/*ShouldUpdateCurrentLine=*/false);
 
   // Emit #line directives or GNU line markers depending on what mode we're in.
+
+  // Dsl Change Begin
+  if (RewriteDSL) {
+    OS << "@@line(" << LineNo << ',' << ' ' << '"';
+    OS.write_escaped(CurFilename);
+    OS << '"' << ')' << ';';
+  } else
+  // Dsl Change End
   if (UseLineDirectives) {
     OS << "#line" << ' ' << LineNo << ' ' << '"';
     OS.write_escaped(CurFilename);
@@ -744,7 +755,7 @@ void clang::DoPrintPreprocessedInput(Preprocessor &PP, raw_ostream *OS,
   PP.SetCommentRetentionState(Opts.ShowComments, Opts.ShowMacroComments);
 
   PrintPPOutputPPCallbacks *Callbacks = new PrintPPOutputPPCallbacks(
-      PP, *OS, !Opts.ShowLineMarkers, Opts.ShowMacros, Opts.UseLineDirectives);
+      PP, *OS, !Opts.ShowLineMarkers, Opts.ShowMacros, Opts.UseLineDirectives, Opts.RewriteDSL);
 
   // Expand macros in pragmas with -fms-extensions.  The assumption is that
   // the majority of pragmas in such a file will be Microsoft pragmas.

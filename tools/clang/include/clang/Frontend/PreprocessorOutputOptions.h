@@ -23,7 +23,9 @@ public:
   unsigned ShowMacroComments : 1;  ///< Show comments, even in macros.
   unsigned ShowMacros : 1;         ///< Print macro definitions.
   unsigned RewriteIncludes : 1;    ///< Preprocess include directives only.
-
+  // Dsl Change Begin
+  unsigned RewriteDSL : 1;         ///< Rewrite to DSL.
+  // Dsl Change End
 public:
   PreprocessorOutputOptions() {
     ShowCPP = 0;
@@ -33,6 +35,9 @@ public:
     ShowMacroComments = 0;
     ShowMacros = 0;
     RewriteIncludes = 0;
+    // Dsl Change Begin
+    RewriteDSL = 0;
+    // Dsl Change End
   }
 };
 

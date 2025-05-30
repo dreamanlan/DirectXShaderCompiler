@@ -1,0 +1,10 @@
+1、历史已经不一样，首先执行下面操作
+git fetch upstream
+git checkout main
+git reset --hard upstream/main
+git push origin main --force
+2、历史一样，后续使用rebase更新本地main分支
+git fetch upstream
+git checkout main
+git rebase upstream/main
+git push origin main --force

@@ -1260,6 +1260,15 @@ SpirvInstruction *SpirvEmitter::doExpr(const Expr *expr,
   return result;
 }
 
+SpirvInstruction *SpirvEmitter::doExprEnsuringRValue(const Expr *E,
+                                                     SourceLocation location,
+                                                     SourceRange range) {
+  SpirvInstruction *I = doExpr(E);
+  if (I->isRValue())
+    return I;
+  return spvBuilder.createLoad(E->getType(), I, location, range);
+}
+
 SpirvInstruction *SpirvEmitter::loadIfGLValue(const Expr *expr,
                                               SourceRange rangeOverride) {
   // We are trying to load the value here, which is what an LValueToRValue
@@ -11364,8 +11373,8 @@ SpirvInstruction *SpirvEmitter::processIntrinsicMul(const CallExpr *callExpr) {
     uint32_t numRows = 0;
     if (isMxNMatrix(returnType, &elemType, &numRows)) {
       llvm::SmallVector<SpirvInstruction *, 4> rows;
-      auto *arg0Id = doExpr(arg0);
-      auto *arg1Id = doExpr(arg1);
+      auto *arg0Id = doExprEnsuringRValue(arg0, loc, range);
+      auto *arg1Id = doExprEnsuringRValue(arg1, loc, range);
       for (uint32_t i = 0; i < numRows; ++i) {
         auto *scalar = spvBuilder.createCompositeExtract(elemType, arg0Id, {i},
                                                          loc, range);
@@ -11380,8 +11389,8 @@ SpirvInstruction *SpirvEmitter::processIntrinsicMul(const CallExpr *callExpr) {
   }
 
   // All the following cases require handling arg0 and arg1 expressions first.
-  auto *arg0Id = doExpr(arg0);
-  auto *arg1Id = doExpr(arg1);
+  auto *arg0Id = doExprEnsuringRValue(arg0, loc, range);
+  auto *arg1Id = doExprEnsuringRValue(arg1, loc, range);
 
   // mul(scalar, scalar)
   if (isScalarType(arg0Type) && isScalarType(arg1Type))
@@ -13012,7 +13021,7 @@ void SpirvEmitter::processDispatchMesh(const CallExpr *callExpr) {
           : spv::StorageClass::Output;
   auto *payloadArg = doExpr(args[3]);
   bool isValid = false;
-  const VarDecl *param = nullptr;
+  SpirvInstruction *param = nullptr;
   if (const auto *implCastExpr = dyn_cast<CastExpr>(args[3])) {
     if (const auto *arg = dyn_cast<DeclRefExpr>(implCastExpr->getSubExpr())) {
       if (const auto *paramDecl = dyn_cast<VarDecl>(arg->getDecl())) {
@@ -13020,7 +13029,8 @@ void SpirvEmitter::processDispatchMesh(const CallExpr *callExpr) {
           isValid = declIdMapper.createPayloadStageVars(
               sigPoint, sc, paramDecl, /*asInput=*/false, paramDecl->getType(),
               "out.var", &payloadArg);
-          param = paramDecl;
+          param =
+              declIdMapper.getDeclEvalInfo(paramDecl, paramDecl->getLocation());
         }
       }
     }
@@ -13037,7 +13047,7 @@ void SpirvEmitter::processDispatchMesh(const CallExpr *callExpr) {
 
   if (featureManager.isExtensionEnabled(Extension::EXT_mesh_shader)) {
     // for EXT_mesh_shader, create opEmitMeshTasksEXT.
-    spvBuilder.createEmitMeshTasksEXT(threadX, threadY, threadZ, loc, nullptr,
+    spvBuilder.createEmitMeshTasksEXT(threadX, threadY, threadZ, loc, param,
                                       range);
   } else {
     // for NV_mesh_shader, set TaskCountNV = threadX * threadY * threadZ.

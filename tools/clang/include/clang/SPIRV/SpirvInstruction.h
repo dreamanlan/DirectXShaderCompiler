@@ -48,19 +48,20 @@ public:
     // "Metadata" kinds
     // In the order of logical layout
 
-    IK_Capability,      // OpCapability
-    IK_Extension,       // OpExtension
-    IK_ExtInstImport,   // OpExtInstImport
-    IK_MemoryModel,     // OpMemoryModel
-    IK_EntryPoint,      // OpEntryPoint
-    IK_ExecutionMode,   // OpExecutionMode
-    IK_ExecutionModeId, // OpExecutionModeId
-    IK_String,          // OpString (debug)
-    IK_Source,          // OpSource (debug)
-    IK_ModuleProcessed, // OpModuleProcessed (debug)
-    IK_Decoration,      // Op*Decorate
-    IK_Type,            // OpType*
-    IK_Variable,        // OpVariable
+    IK_Capability,         // OpCapability
+    IK_Extension,          // OpExtension
+    IK_ExtInstImport,      // OpExtInstImport
+    IK_MemoryModel,        // OpMemoryModel
+    IK_EntryPoint,         // OpEntryPoint
+    IK_ExecutionMode,      // OpExecutionMode
+    IK_ExecutionModeId,    // OpExecutionModeId
+    IK_String,             // OpString (debug)
+    IK_Source,             // OpSource (debug)
+    IK_ModuleProcessed,    // OpModuleProcessed (debug)
+    IK_Decoration,         // Op*Decorate
+    IK_Type,               // OpType*
+    IK_Variable,           // OpVariable
+    IK_UntypedVariableKHR, // OpUntypedVariableKHR
 
     // Different kind of constants. Order matters.
     IK_ConstantBoolean,
@@ -68,11 +69,13 @@ public:
     IK_ConstantFloat,
     IK_ConstantComposite,
     IK_ConstantString,
+    IK_ConstantSizeOfEXT,
     IK_ConstantNull,
 
     // Pointer <-> uint conversions.
     IK_ConvertPtrToU,
     IK_ConvertUToPtr,
+    IK_BufferPointerEXT, // OpBufferPointerEXT
 
     // OpUndef
     IK_Undef,
@@ -101,6 +104,7 @@ public:
     // In alphabetical order
 
     IK_AccessChain,              // OpAccessChain
+    IK_UntypedAccessChainKHR,    // OpUntypedAccessChainKHR
     IK_ArrayLength,              // OpArrayLength
     IK_Atomic,                   // OpAtomic*
     IK_Barrier,                  // Op*Barrier
@@ -123,23 +127,25 @@ public:
 
     IK_GroupNonUniformOp, // Group non-uniform operations
 
-    IK_ImageOp,                   // OpImage*
-    IK_ImageQuery,                // OpImageQuery*
-    IK_ImageSparseTexelsResident, // OpImageSparseTexelsResident
-    IK_ImageTexelPointer,         // OpImageTexelPointer
-    IK_Load,                      // OpLoad
-    IK_RayQueryOpKHR,             // KHR rayquery ops
-    IK_RayTracingOpNV,            // NV raytracing ops
-    IK_ReadClock,                 // OpReadClock
-    IK_SampledImage,              // OpSampledImage
-    IK_Select,                    // OpSelect
-    IK_SpecConstantBinaryOp,      // SpecConstant binary operations
-    IK_SpecConstantUnaryOp,       // SpecConstant unary operations
-    IK_Store,                     // OpStore
-    IK_UnaryOp,                   // Unary operations
-    IK_NullaryOp,                 // Nullary operations
-    IK_VectorShuffle,             // OpVectorShuffle
-    IK_SpirvIntrinsicInstruction, // Spirv Intrinsic Instructions
+    IK_ImageOp,                     // OpImage*
+    IK_ImageQuery,                  // OpImageQuery*
+    IK_ImageSparseTexelsResident,   // OpImageSparseTexelsResident
+    IK_ImageTexelPointer,           // OpImageTexelPointer
+    IK_UntypedImageTexelPointerEXT, // OpUntypedImageTexelPointerEXT
+    IK_Load,                        // OpLoad
+    IK_RayQueryOpKHR,               // KHR rayquery ops
+    IK_RayTracingOpNV,              // NV raytracing ops
+    IK_ReadClock,                   // OpReadClock
+    IK_SampledImage,                // OpSampledImage
+    IK_Select,                      // OpSelect
+    IK_SpecConstantTernaryOp,       // SpecConstant ternary operations
+    IK_SpecConstantBinaryOp,        // SpecConstant binary operations
+    IK_SpecConstantUnaryOp,         // SpecConstant unary operations
+    IK_Store,                       // OpStore
+    IK_UnaryOp,                     // Unary operations
+    IK_NullaryOp,                   // Nullary operations
+    IK_VectorShuffle,               // OpVectorShuffle
+    IK_SpirvIntrinsicInstruction,   // Spirv Intrinsic Instructions
 
     // For DebugInfo instructions defined in
     // OpenCL.DebugInfo.100 and NonSemantic.Shader.DebugInfo.100
@@ -293,6 +299,14 @@ protected:
   bool isRasterizerOrdered_;
 };
 
+/// \brief class wrapping OpVariable and OpUntypedVariableKHR
+class SpirvVariableLike : public SpirvInstruction {
+
+protected:
+  SpirvVariableLike(Kind kind, spv::Op opcode, QualType astResultType,
+                    SourceLocation loc, SourceRange range = {});
+};
+
 /// \brief OpCapability instruction
 class SpirvCapability : public SpirvInstruction {
 public:
@@ -387,7 +401,7 @@ class SpirvEntryPoint : public SpirvInstruction {
 public:
   SpirvEntryPoint(SourceLocation loc, spv::ExecutionModel executionModel,
                   SpirvFunction *entryPoint, llvm::StringRef nameStr,
-                  llvm::ArrayRef<SpirvVariable *> iface);
+                  llvm::ArrayRef<SpirvVariableLike *> iface);
 
   DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvEntryPoint)
 
@@ -401,13 +415,15 @@ public:
   spv::ExecutionModel getExecModel() const { return execModel; }
   SpirvFunction *getEntryPoint() const { return entryPoint; }
   llvm::StringRef getEntryPointName() const { return name; }
-  llvm::ArrayRef<SpirvVariable *> getInterface() const { return interfaceVec; }
+  llvm::ArrayRef<SpirvVariableLike *> getInterface() const {
+    return interfaceVec;
+  }
 
 private:
   spv::ExecutionModel execModel;
   SpirvFunction *entryPoint;
   std::string name;
-  llvm::SmallVector<SpirvVariable *, 8> interfaceVec;
+  llvm::SmallVector<SpirvVariableLike *, 8> interfaceVec;
 };
 
 class SpirvExecutionModeBase : public SpirvInstruction {
@@ -605,7 +621,7 @@ private:
 };
 
 /// \brief OpVariable instruction
-class SpirvVariable : public SpirvInstruction {
+class SpirvVariable : public SpirvVariableLike {
 public:
   SpirvVariable(QualType resultType, SourceLocation loc, spv::StorageClass sc,
                 bool isPrecise, bool isNointerp,
@@ -638,6 +654,52 @@ private:
   int32_t descriptorSet;
   int32_t binding;
   std::string hlslUserType;
+};
+
+/// \brief OpUntypedVariableKHR instruction
+class SpirvUntypedVariableKHR : public SpirvVariableLike {
+public:
+  SpirvUntypedVariableKHR(QualType resultType, SourceLocation loc,
+                          spv::StorageClass sc);
+
+  SpirvUntypedVariableKHR(const SpirvType *spvType, SourceLocation loc,
+                          spv::StorageClass sc);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvUntypedVariableKHR)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_UntypedVariableKHR;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+};
+
+/// \brief Untyped Access Chain instruction representation
+/// (OpUntypedAccessChainKHR)
+class SpirvUntypedAccessChainKHR : public SpirvInstruction {
+public:
+  SpirvUntypedAccessChainKHR(const SpirvType *resultType, SourceLocation loc,
+                             const SpirvType *baseType, SpirvInstruction *base,
+                             llvm::ArrayRef<SpirvInstruction *> indexVec);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvUntypedAccessChainKHR)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_UntypedAccessChainKHR;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  SpirvInstruction *getBase() const { return base; }
+  const SpirvType *getBaseType() const { return baseType; };
+  llvm::ArrayRef<SpirvInstruction *> getIndices() const { return indices; }
+
+private:
+  const SpirvType *baseType;
+  SpirvInstruction *base;
+  llvm::SmallVector<SpirvInstruction *, 4> indices;
 };
 
 class SpirvFunctionParameter : public SpirvInstruction {
@@ -1477,6 +1539,33 @@ public:
   bool operator==(const SpirvConstantNull &that) const;
 };
 
+/// \brief Represents OpConstantSizeOfEXT (SPV_EXT_descriptor_heap).
+///
+/// Yields the client-API-defined size of a descriptor type in bytes. Unlike
+/// other constants its operand is a SPIR-V type (a descriptor type such as
+/// OpTypeBufferEXT/OpTypeImage/OpTypeSampler), not a value. Used as the operand
+/// of an ArrayStrideIdEXT decoration on descriptor-heap runtime arrays.
+class SpirvConstantSizeOfEXT : public SpirvConstant {
+public:
+  SpirvConstantSizeOfEXT(QualType resultType, const SpirvType *operandType);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvConstantSizeOfEXT)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_ConstantSizeOfEXT;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  bool operator==(const SpirvConstantSizeOfEXT &that) const;
+
+  const SpirvType *getOperandType() const { return operandType; }
+
+private:
+  const SpirvType *operandType;
+};
+
 class SpirvConstantString : public SpirvConstant {
 public:
   SpirvConstantString(llvm::StringRef stringLiteral, bool isSpecConst = false);
@@ -2002,6 +2091,44 @@ private:
   SpirvInstruction *sample;
 };
 
+class SpirvUntypedImageTexelPointerEXT : public SpirvInstruction {
+public:
+  SpirvUntypedImageTexelPointerEXT(QualType resultType, SourceLocation loc,
+                                   const SpirvType *imageType,
+                                   SpirvInstruction *image,
+                                   SpirvInstruction *coordinate,
+                                   SpirvInstruction *sample);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvUntypedImageTexelPointerEXT)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_UntypedImageTexelPointerEXT;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  const SpirvType *getImageType() const { return imageType; }
+  SpirvInstruction *getImage() const { return image; }
+  SpirvInstruction *getCoordinate() const { return coordinate; }
+  SpirvInstruction *getSample() const { return sample; }
+
+  void replaceOperand(
+      llvm::function_ref<SpirvInstruction *(SpirvInstruction *)> remapOp,
+      bool inEntryFunctionWrapper) override {
+    // imageType is a compile-time SpirvType, not an SSA operand.
+    image = remapOp(image);
+    coordinate = remapOp(coordinate);
+    sample = remapOp(sample);
+  }
+
+private:
+  const SpirvType *imageType;
+  SpirvInstruction *image;
+  SpirvInstruction *coordinate;
+  SpirvInstruction *sample;
+};
+
 /// \brief Load instruction representation
 class SpirvLoad : public SpirvInstruction {
 public:
@@ -2127,6 +2254,35 @@ private:
   SpirvInstruction *condition;
   SpirvInstruction *trueObject;
   SpirvInstruction *falseObject;
+};
+
+/// \brief OpSpecConstantOp instruction where the operation is ternary.
+class SpirvSpecConstantTernaryOp : public SpirvInstruction {
+public:
+  SpirvSpecConstantTernaryOp(spv::Op specConstantOp, QualType resultType,
+                             SourceLocation loc, SpirvInstruction *operand1,
+                             SpirvInstruction *operand2,
+                             SpirvInstruction *operand3);
+
+  DEFINE_RELEASE_MEMORY_FOR_CLASS(SpirvSpecConstantTernaryOp)
+
+  // For LLVM-style RTTI
+  static bool classof(const SpirvInstruction *inst) {
+    return inst->getKind() == IK_SpecConstantTernaryOp;
+  }
+
+  bool invokeVisitor(Visitor *v) override;
+
+  spv::Op getSpecConstantopcode() const { return specOp; }
+  SpirvInstruction *getOperand1() const { return operand1; }
+  SpirvInstruction *getOperand2() const { return operand2; }
+  SpirvInstruction *getOperand3() const { return operand3; }
+
+private:
+  spv::Op specOp;
+  SpirvInstruction *operand1;
+  SpirvInstruction *operand2;
+  SpirvInstruction *operand3;
 };
 
 /// \brief OpSpecConstantOp instruction where the operation is binary.

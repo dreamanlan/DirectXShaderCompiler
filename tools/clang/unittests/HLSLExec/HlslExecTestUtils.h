@@ -1,406 +1,709 @@
 #ifndef HLSLEXECTESTUTILS_H
 #define HLSLEXECTESTUTILS_H
 
-#include "dxc/Support/dxcapi.use.h"
-#include "dxc/Test/HlslTestUtils.h"
-#include <Verify.h>
+#include <atlcomcli.h>
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+#include <windows.h>
 
-namespace ExecTestUtils {
-// This is defined in d3d.h for Windows 10 Anniversary Edition SDK, but we
-// only require the Windows 10 SDK.
-typedef enum D3D_SHADER_MODEL {
-  D3D_SHADER_MODEL_5_1 = 0x51,
-  D3D_SHADER_MODEL_6_0 = 0x60,
-  D3D_SHADER_MODEL_6_1 = 0x61,
-  D3D_SHADER_MODEL_6_2 = 0x62,
-  D3D_SHADER_MODEL_6_3 = 0x63,
-  D3D_SHADER_MODEL_6_4 = 0x64,
-  D3D_SHADER_MODEL_6_5 = 0x65,
-  D3D_SHADER_MODEL_6_6 = 0x66,
-  D3D_SHADER_MODEL_6_7 = 0x67,
-  D3D_SHADER_MODEL_6_8 = 0x68,
-  D3D_SHADER_MODEL_6_9 = 0x69,
-  D3D_HIGHEST_SHADER_MODEL = D3D_SHADER_MODEL_6_9
-} D3D_SHADER_MODEL;
-} // namespace ExecTestUtils
+#include "ShaderOpTest.h"
+#include "dxc/DXIL/DxilConstants.h"
+#include "dxc/Support/dxcapi.use.h"
 
-static bool useDebugIfaces() { return true; }
-
-static bool useDxbc() {
-#ifdef _HLK_CONF
-  return false;
-#else
-  return hlsl_test::GetTestParamBool(L"DXBC");
+// These tests build against released Windows SDKs, retail Agility SDK headers
+// and preview Agility SDK headers, which disagree on how the linear algebra and
+// groupshared-limit APIs are spelled. The deployment-tier macros
+// (DIRECT3D_PREVIEW_BUILD, DIRECT3D_LINEAR_ALGEBRA) don't answer that question,
+// so key off the SDK version instead. Headers at D3D12_SDK_VERSION 621 or later
+// use the newer names; preview headers at 722 use the older ones. Earlier
+// preview drops spelled the feature query differently again and aren't
+// supported here.
+#if defined(D3D12_SDK_VERSION) && D3D12_SDK_VERSION >= 621
+#define HLSLEXEC_LINALG_CURRENT_NAMES 1
 #endif
-}
 
-static bool useWarpByDefualt() {
-#ifdef _HLK_CONF
-  return false;
-#else
-  return true;
+#if defined(HLSLEXEC_LINALG_CURRENT_NAMES) ||                                  \
+    (defined(D3D12_PREVIEW_SDK_VERSION) && D3D12_PREVIEW_SDK_VERSION >= 722)
+// This header declares the linear algebra host API (the D3D12_LINEAR_ALGEBRA_*
+// types and the matrix-conversion methods).
+#define HLSLEXEC_LINALG_HOST_API 1
+// This header declares the variable groupshared memory limits query.
+#define HLSLEXEC_GROUPSHARED_LIMITS 1
 #endif
-}
 
-// A more recent Windows SDK than currently required is needed for these.
-typedef HRESULT(WINAPI *D3D12EnableExperimentalFeaturesFn)(
-    UINT NumFeatures, __in_ecount(NumFeatures) const IID *IIDs,
-    __in_ecount_opt(NumFeatures) void *ConfigurationStructs,
-    __in_ecount_opt(NumFeatures) UINT *ConfigurationStructSizes);
+#if defined(HLSLEXEC_LINALG_HOST_API)
+#if defined(HLSLEXEC_LINALG_CURRENT_NAMES)
+using IHlslExecLinAlgDevice = ID3D12Device17;
+using IHlslExecLinAlgCommandList = ID3D12GraphicsCommandList13;
+using HlslExecGroupsharedLimits =
+    D3D12_FEATURE_DATA_VARIABLE_GROUPSHARED_LIMITS;
+constexpr D3D12_FEATURE HlslExecGroupsharedLimitsFeature =
+    D3D12_FEATURE_VARIABLE_GROUPSHARED_LIMITS;
+#else
+using IHlslExecLinAlgDevice = ID3D12DevicePreview;
+using IHlslExecLinAlgCommandList = ID3D12GraphicsCommandListPreview;
+using HlslExecGroupsharedLimits = D3D12_FEATURE_DATA_D3D12_OPTIONS_PREVIEW;
+constexpr D3D12_FEATURE HlslExecGroupsharedLimitsFeature =
+    D3D12_FEATURE_D3D12_OPTIONS_PREVIEW;
+#endif
+#endif // defined(HLSLEXEC_LINALG_HOST_API)
 
-static const GUID D3D12ExperimentalShaderModelsID =
-    {/* 76f5573e-f13a-40f5-b297-81ce9e18933f */
-     0x76f5573e,
-     0xf13a,
-     0x40f5,
-     {0xb2, 0x97, 0x81, 0xce, 0x9e, 0x18, 0x93, 0x3f}};
+// The released Windows SDK does not declare the linear algebra API yet, and
+// CheckFeatureSupport takes an untyped (void *, size) pair, so what this code
+// depends on is a runtime layout rather than a compile-time type. Everything
+// the tests need is therefore mirrored here.
+//
+// The whole shim is kept together in this one block so it can be deleted in
+// one go. It is transcribed verbatim from d3d12.h - same type names, same
+// field names, same enumerator names, same declaration order - so it can be
+// diffed against the header directly, and so removing it leaves the use sites
+// needing only the linalg_abi:: qualifier dropped.
+//
+// Enum-typed fields of the capability structures are declared as UINT because
+// the values crossing CheckFeatureSupport are opaque here. The enumerations are
+// the typed surface the tests use.
+//
+// None of it is taken on trust. When the preview SDK is present, the
+// ASSERT_RUNTIME_* blocks at the end of this block pin every value, size,
+// alignment and field offset to the real declarations. Those comparisons
+// qualify both sides explicitly because the names are deliberately identical:
+// unqualified lookup from inside the namespace would resolve to the local copy
+// twice and assert nothing.
+//
+// For the same reason there is no using-directive for this namespace, and there
+// must not be. The matrix-conversion helpers further down this header take the
+// real D3D12 types, so pulling these names in unqualified would make every one
+// of those declarations ambiguous in a preview-SDK build.
+//
+// TODO: delete this block once the linear algebra API ships in a released
+// Windows SDK.
+namespace linalg_abi {
 
-// Used to create D3D12SDKConfiguration to enable AgilitySDK programmatically.
-typedef HRESULT(WINAPI *D3D12GetInterfaceFn)(REFCLSID Rclsid, REFIID Riid,
-                                             void **Debug);
+// D3D12_FEATURE itself ships in the released SDK; only these two enumerators of
+// it are missing, so they are mirrored as constants rather than as an
+// enumeration.
+constexpr D3D12_FEATURE D3D12_FEATURE_LINEAR_ALGEBRA_SUPPORT =
+    static_cast<D3D12_FEATURE>(77);
+constexpr D3D12_FEATURE D3D12_FEATURE_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT =
+    static_cast<D3D12_FEATURE>(78);
 
-#ifndef __ID3D12SDKConfiguration_INTERFACE_DEFINED__
-
-// Copied from AgilitySDK D3D12.h to programmatically enable when in developer
-// mode.
-#define __ID3D12SDKConfiguration_INTERFACE_DEFINED__
-
-EXTERN_C const GUID DECLSPEC_SELECTANY IID_ID3D12SDKConfiguration = {
-    0xe9eb5314,
-    0x33aa,
-    0x42b2,
-    {0xa7, 0x18, 0xd7, 0x7f, 0x58, 0xb1, 0xf1, 0xc7}};
-EXTERN_C const GUID DECLSPEC_SELECTANY CLSID_D3D12SDKConfiguration = {
-    0x7cda6aca,
-    0xa03e,
-    0x49c8,
-    {0x94, 0x58, 0x03, 0x34, 0xd2, 0x0e, 0x07, 0xce}};
-
-MIDL_INTERFACE("e9eb5314-33aa-42b2-a718-d77f58b1f1c7")
-ID3D12SDKConfiguration : public IUnknown {
-public:
-  virtual HRESULT STDMETHODCALLTYPE SetSDKVersion(UINT SDKVersion,
-                                                  LPCSTR SDKPath) = 0;
+enum D3D12_LINEAR_ALGEBRA_TIER {
+  D3D12_LINEAR_ALGEBRA_TIER_NOT_SUPPORTED = 0,
+  D3D12_LINEAR_ALGEBRA_TIER_1_0 = 0x10
 };
-#endif /* __ID3D12SDKConfiguration_INTERFACE_DEFINED__ */
 
-static std::wstring getModuleName() {
-  wchar_t ModuleName[MAX_PATH + 1] = {0};
-  const DWORD Length = GetModuleFileNameW(NULL, ModuleName, MAX_PATH);
+enum D3D12_LINEAR_ALGEBRA_DATATYPE {
+  D3D12_LINEAR_ALGEBRA_DATATYPE_NONE = 0,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_SINT16 = 2,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_UINT16 = 3,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_SINT32 = 4,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_UINT32 = 5,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16 = 7,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT32 = 8,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_SINT8 = 18,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_UINT8 = 19,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E4M3FN = 20,
+  D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E5M2 = 21
+};
 
-  if (Length == 0 || Length == MAX_PATH)
-    return std::wstring(); // Error condition
+enum D3D12_LINEAR_ALGEBRA_OPERATION_TYPE {
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_MATRIX_CONSTRUCTION = 0,
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_WAVE_MATRIX_MULTIPLY = 1,
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREADGROUP_MATRIX_MULTIPLY = 2,
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREAD_VECTOR_MATRIX_MULTIPLY = 3,
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREAD_OUTER_PRODUCT = 4,
+  D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_ATOMIC_ACCUMULATE_STORE = 5
+};
 
-  return std::wstring(ModuleName, Length);
+enum D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS {
+  D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_NONE = 0,
+  D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_SUPPORTED = 1,
+  D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_EMULATED_INPUTS = 2,
+  D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_EMULATED_OUTPUTS = 4,
+  D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_TRANSPOSE = 8
+};
+
+enum D3D12_LINEAR_ALGEBRA_MATRIX_USE {
+  D3D12_LINEAR_ALGEBRA_MATRIX_USE_A = 0,
+  D3D12_LINEAR_ALGEBRA_MATRIX_USE_B = 1,
+  D3D12_LINEAR_ALGEBRA_MATRIX_USE_ACCUMULATOR = 2
+};
+
+enum D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE {
+  D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_THREAD = 0,
+  D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_WAVE = 1,
+  D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_THREADGROUP = 2
+};
+
+struct D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE {
+  UINT M;
+  UINT K;
+  UINT N;
+};
+
+typedef D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE
+    D3D12_LINEAR_ALGEBRA_MATRIX_MULTIPLY_SHAPE;
+
+struct D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE {
+  UINT M;
+  UINT N;
+};
+
+struct D3D12_FEATURE_DATA_LINEAR_ALGEBRA_SUPPORT {
+  UINT LinearAlgebraTier;
+};
+
+struct D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT {
+  UINT ComponentType;
+  D3D12_LINEAR_ALGEBRA_MATRIX_USE Use;
+  D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE Scope;
+  UINT WaveSize;
+  UINT ThreadGroupSize;
+  D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE Shape;
+  BOOL Supported;
+};
+
+struct D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS {
+  UINT WaveSize;
+  UINT MatrixAComponentType;
+  UINT MatrixBComponentType;
+  UINT AccumulatorComponentType;
+};
+
+struct D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT {
+  D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS Inputs;
+  D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE Shape;
+  UINT SupportFlags;
+};
+
+struct D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT {
+  D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS WaveInputs;
+  D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE Shape;
+  UINT ThreadGroupSize;
+  UINT SupportFlags;
+};
+
+struct D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT {
+  UINT VectorInputType;
+  UINT MatrixInputType;
+  UINT BiasInputType;
+  UINT VectorResultType;
+  UINT SupportFlags;
+};
+
+struct D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT {
+  UINT InputComponentType;
+  UINT ResultComponentType;
+  BOOL Supported;
+};
+
+struct D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT {
+  UINT ComponentType;
+  BOOL RWByteAddressBufferSupported;
+  BOOL GroupSharedSupported;
+};
+
+struct D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT {
+  UINT OperationType;
+  union {
+    D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT MatrixConstruction;
+    D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT WaveMatrixMultiply;
+    D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT
+    ThreadGroupMatrixMultiply;
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT
+    ThreadVectorMatrixMultiply;
+    D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT ThreadOuterProductSupport;
+    D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT AccumulateStore;
+  };
+};
+
+} // namespace linalg_abi
+
+// Everything above is pinned to the real declarations here. This only compiles
+// against a header that declares the linear algebra API, so run such a compile
+// whenever the copies above are touched.
+#if defined(HLSLEXEC_LINALG_HOST_API)
+
+#define ASSERT_RUNTIME_ENUM(EnumeratorName)                                    \
+  static_assert(static_cast<UINT>(linalg_abi::EnumeratorName) ==               \
+                    static_cast<UINT>(::EnumeratorName),                       \
+                "Linear algebra runtime enum value changed")
+
+ASSERT_RUNTIME_ENUM(D3D12_FEATURE_LINEAR_ALGEBRA_SUPPORT);
+ASSERT_RUNTIME_ENUM(D3D12_FEATURE_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_TIER_NOT_SUPPORTED);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_TIER_1_0);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_NONE);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_SINT16);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_UINT16);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_SINT32);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_UINT32);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT16);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT32);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_SINT8);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_UINT8);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E4M3FN);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_DATATYPE_FLOAT8_E5M2);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_MATRIX_CONSTRUCTION);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_WAVE_MATRIX_MULTIPLY);
+ASSERT_RUNTIME_ENUM(
+    D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREADGROUP_MATRIX_MULTIPLY);
+ASSERT_RUNTIME_ENUM(
+    D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREAD_VECTOR_MATRIX_MULTIPLY);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_THREAD_OUTER_PRODUCT);
+ASSERT_RUNTIME_ENUM(
+    D3D12_LINEAR_ALGEBRA_OPERATION_TYPE_ATOMIC_ACCUMULATE_STORE);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_NONE);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_SUPPORTED);
+ASSERT_RUNTIME_ENUM(
+    D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_EMULATED_INPUTS);
+ASSERT_RUNTIME_ENUM(
+    D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_EMULATED_OUTPUTS);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_TRANSPOSE);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_USE_A);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_USE_B);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_USE_ACCUMULATOR);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_THREAD);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_WAVE);
+ASSERT_RUNTIME_ENUM(D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE_THREADGROUP);
+
+#undef ASSERT_RUNTIME_ENUM
+
+// The local copies share their names with the real header types, so these
+// comparisons must be explicitly qualified: linalg_abi:: for the local copy and
+// :: for the SDK declaration. Unqualified lookup from inside this namespace
+// resolves to the local copy on both sides and would assert nothing.
+#define ASSERT_RUNTIME_ABI(TypeName)                                           \
+  static_assert(sizeof(linalg_abi::TypeName) == sizeof(::TypeName),            \
+                "Linear algebra runtime ABI size changed");                    \
+  static_assert(alignof(linalg_abi::TypeName) == alignof(::TypeName),          \
+                "Linear algebra runtime ABI alignment changed")
+
+ASSERT_RUNTIME_ABI(D3D12_FEATURE_DATA_LINEAR_ALGEBRA_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_MATRIX_MULTIPLY_SHAPE);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT);
+ASSERT_RUNTIME_ABI(D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT);
+
+#undef ASSERT_RUNTIME_ABI
+
+#define ASSERT_RUNTIME_OFFSET(TypeName, Field)                                 \
+  static_assert(offsetof(linalg_abi::TypeName, Field) ==                       \
+                    offsetof(::TypeName, Field),                               \
+                "Linear algebra runtime ABI field offset changed")
+
+ASSERT_RUNTIME_OFFSET(D3D12_FEATURE_DATA_LINEAR_ALGEBRA_SUPPORT,
+                      LinearAlgebraTier);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT,
+                      ComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT, Use);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT, Scope);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT,
+                      WaveSize);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT,
+                      ThreadGroupSize);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT, Shape);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SUPPORT,
+                      Supported);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE, M);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE, N);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_MULTIPLY_SHAPE, M);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_MULTIPLY_SHAPE, K);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_MATRIX_MULTIPLY_SHAPE, N);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS,
+                      WaveSize);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS,
+                      MatrixAComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS,
+                      MatrixBComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_INPUTS,
+                      AccumulatorComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT,
+                      Inputs);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT, Shape);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_WAVE_MATRIX_MULTIPLY_SUPPORT,
+                      SupportFlags);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT,
+                      WaveInputs);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT,
+                      Shape);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT,
+                      SupportFlags);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREADGROUP_MATRIX_MULTIPLY_SUPPORT,
+                      ThreadGroupSize);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT,
+    VectorInputType);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT,
+    MatrixInputType);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT, BiasInputType);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT,
+    VectorResultType);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_LINEAR_ALGEBRA_THREAD_VECTOR_MATRIX_MULTIPLY_SUPPORT, SupportFlags);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT,
+                      InputComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT,
+                      ResultComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_THREAD_OUTER_PRODUCT_SUPPORT,
+                      Supported);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT,
+                      ComponentType);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT,
+                      RWByteAddressBufferSupported);
+ASSERT_RUNTIME_OFFSET(D3D12_LINEAR_ALGEBRA_ATOMIC_ACCUMULATE_STORE_SUPPORT,
+                      GroupSharedSupported);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT, OperationType);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    MatrixConstruction);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    WaveMatrixMultiply);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    ThreadGroupMatrixMultiply);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    ThreadVectorMatrixMultiply);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    ThreadOuterProductSupport);
+ASSERT_RUNTIME_OFFSET(
+    D3D12_FEATURE_DATA_LINEAR_ALGEBRA_MATRIX_OPERATION_SUPPORT,
+    AccumulateStore);
+
+#undef ASSERT_RUNTIME_OFFSET
+
+#endif // defined(HLSLEXEC_LINALG_HOST_API)
+
+// Headers below D3D12_SDK_VERSION 620 / D3D12_PREVIEW_SDK_VERSION 720 do not
+// declare D3D_SHADER_MODEL_6_10, released Windows SDKs included. Define it
+// locally there. Remove once a released Windows SDK declares it.
+#if !(                                                                         \
+    (defined(D3D12_SDK_VERSION) && D3D12_SDK_VERSION >= 620) ||                \
+    (defined(D3D12_PREVIEW_SDK_VERSION) && D3D12_PREVIEW_SDK_VERSION >= 720))
+static const D3D_SHADER_MODEL D3D_SHADER_MODEL_6_10 = (D3D_SHADER_MODEL)0x6a;
+#endif
+
+// Local highest shader model known to DXC. Update this when adding support
+// for new shader models. Unlike D3D_HIGHEST_SHADER_MODEL from the SDK,
+// this stays in sync with DXC's own capabilities.
+#define DXC_HIGHEST_SHADER_MODEL D3D_SHADER_MODEL_6_10
+
+bool useDxbc();
+
+/// Manages D3D12 (Agility) SDK selection
+///
+/// Based on TAEF runtime parameters, this picks an appropriate D3D12 SDK.
+///
+/// TAEF parameters:
+///
+///  D3D12SDKPath: relative or absolute path to the D3D12 Agility SDK bin
+///  directory. Absolute path is only supported on OS's that support
+///  ID3D12DeviceFactory.
+///
+///  D3D12SDKVersion: requested SDK version
+///
+///    0: auto-detect (quietly fallback to inbox version)
+///
+///    1: auto-detect (fail if unable to use the auto-detected version)
+///
+///   >1: use specified version
+class D3D12SDKSelector {
+  CComPtr<ID3D12DeviceFactory> DeviceFactory;
+
+public:
+  D3D12SDKSelector();
+  ~D3D12SDKSelector();
+
+  bool createDevice(ID3D12Device **D3DDevice,
+                    D3D_SHADER_MODEL TestModel = D3D_SHADER_MODEL_6_0,
+                    bool SkipUnsupported = true);
+};
+
+bool isWarp(ID3D12Device *D3DDevice);
+
+void readHlslDataIntoNewStream(LPCWSTR RelativePath, IStream **Stream,
+                               dxc::SpecificDllLoader &Support);
+
+bool doesDeviceSupportInt64(ID3D12Device *pDevice);
+bool doesDeviceSupportDouble(ID3D12Device *pDevice);
+bool doesDeviceSupportWaveOps(ID3D12Device *pDevice);
+bool doesDeviceSupportBarycentrics(ID3D12Device *pDevice);
+bool doesDeviceSupportNative16bitOps(ID3D12Device *pDevice);
+bool doesDeviceSupportMeshShaders(ID3D12Device *pDevice);
+bool doesDeviceSupportRayTracing(ID3D12Device *pDevice);
+bool doesDeviceSupportMeshAmpDerivatives(ID3D12Device *pDevice);
+bool doesDeviceSupportTyped64Atomics(ID3D12Device *pDevice);
+bool doesDeviceSupportHeap64Atomics(ID3D12Device *pDevice);
+bool doesDeviceSupportShared64Atomics(ID3D12Device *pDevice);
+bool doesDeviceSupportAdvancedTexOps(ID3D12Device *pDevice);
+bool doesDeviceSupportWritableMSAA(ID3D12Device *pDevice);
+bool doesDeviceSupportEnhancedBarriers(ID3D12Device *pDevice);
+bool doesDeviceSupportRelaxedFormatCasting(ID3D12Device *pDevice);
+bool isFallbackPathEnabled();
+
+// Local copies of the D3D12 linear algebra enumerations and matrix shape. The
+// released Windows SDK does not declare them yet, but the capability queries
+// below must work without the preview SDK: CheckFeatureSupport takes an untyped
+// (void *, size) pair, so they need the values, not the SDK's declarations.
+//
+
+namespace linalg_test {
+
+// Execution scope is DXIL's MatrixScope. Its enumerators are sequential rather
+// than disjoint bits, so scope sets are built with scopeBit() below.
+using ScopeFlags = UINT;
+
+constexpr ScopeFlags scopeBit(hlsl::DXIL::MatrixScope Scope) {
+  return 1u << static_cast<UINT>(Scope);
 }
 
-static std::wstring computeSDKFullPath(std::wstring SDKPath) {
-  std::wstring ModulePath = getModuleName();
-  const size_t Pos = ModulePath.rfind('\\');
+enum class AtomicDestination {
+  RWByteAddressBuffer,
+  GroupShared,
+};
 
-  if (Pos == std::wstring::npos)
-    return SDKPath;
+enum class CapabilityRequirement {
+  Mandatory,
+  CapabilityGated,
+};
 
-  if (SDKPath.substr(0, 2) != L".\\")
-    return SDKPath;
+enum class Applicability {
+  Execute,
+  NotApplicable,
+  Fail,
+};
 
-  return ModulePath.substr(0, Pos) + SDKPath.substr(1);
-}
+struct TierSupport {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_TIER LinearAlgebraTier =
+      linalg_abi::D3D12_LINEAR_ALGEBRA_TIER_NOT_SUPPORTED;
 
-static UINT getD3D12SDKVersion(std::wstring SDKPath) {
-  // Try to automatically get the D3D12SDKVersion from the DLL
-  UINT SDKVersion = 0;
-  std::wstring D3DCorePath = computeSDKFullPath(SDKPath);
-  D3DCorePath.append(L"D3D12Core.dll");
-  HMODULE D3DCore = LoadLibraryW(D3DCorePath.c_str());
-  if (D3DCore) {
-    if (UINT *SDKVersionOut =
-            (UINT *)GetProcAddress(D3DCore, "D3D12SDKVersion"))
-      SDKVersion = *SDKVersionOut;
-    FreeModule(D3DCore);
+  bool supported() const {
+    return LinearAlgebraTier !=
+           linalg_abi::D3D12_LINEAR_ALGEBRA_TIER_NOT_SUPPORTED;
   }
-  return SDKVersion;
-}
+};
 
-static bool createDevice(ID3D12Device **D3DDevice,
-                         ExecTestUtils::D3D_SHADER_MODEL TestModel =
-                             ExecTestUtils::D3D_SHADER_MODEL_6_0,
-                         bool SkipUnsupported = true) {
-  if (TestModel > ExecTestUtils::D3D_HIGHEST_SHADER_MODEL) {
-    const UINT Minor = (UINT)TestModel & 0x0f;
-    hlsl_test::LogCommentFmt(L"Installed SDK does not support "
-                             L"shader model 6.%1u",
-                             Minor);
+// Capability queries name a concrete shape and the runtime answers whether it
+// is supported; it applies the "positive multiple of a native tile" rule
+// itself. Callers therefore ask about the shape they intend to use rather than
+// reasoning about native tiles on their behalf.
+struct MatrixConstructionQuery {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE ComponentType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MATRIX_USE Use;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MATRIX_SCOPE Scope;
+  UINT WaveSize;
+  UINT ThreadGroupSize;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MATRIX_CONSTRUCTION_SHAPE Shape;
+};
 
-    if (SkipUnsupported)
-      WEX::Logging::Log::Result(WEX::Logging::TestResults::Skipped);
+struct MatrixConstructionSupport {
+  BOOL Supported = FALSE;
 
-    return false;
-  }
-  CComPtr<IDXGIFactory4> DXGIFactory;
-  CComPtr<ID3D12Device> D3DDeviceCom;
+  bool valid() const;
+  bool supported() const;
+};
 
-  *D3DDevice = nullptr;
+struct WaveMatrixMultiplyInputs {
+  UINT WaveSize;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE MatrixAComponentType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE MatrixBComponentType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE AccumulatorComponentType;
+};
 
-  VERIFY_SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&DXGIFactory)));
-  if (hlsl_test::GetTestParamUseWARP(useWarpByDefualt())) {
-    CComPtr<IDXGIAdapter> WarpAdapter;
-    VERIFY_SUCCEEDED(DXGIFactory->EnumWarpAdapter(IID_PPV_ARGS(&WarpAdapter)));
-    HRESULT CreateHR = D3D12CreateDevice(WarpAdapter, D3D_FEATURE_LEVEL_11_0,
-                                         IID_PPV_ARGS(&D3DDeviceCom));
-    if (FAILED(CreateHR)) {
-      hlsl_test::LogCommentFmt(
-          L"The available version of WARP does not support d3d12.");
+struct WaveMatrixMultiplyQuery {
+  WaveMatrixMultiplyInputs Inputs;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE Shape;
+};
 
-      if (SkipUnsupported)
-        WEX::Logging::Log::Result(WEX::Logging::TestResults::Skipped);
+struct WaveMatrixMultiplySupport {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS SupportFlags =
+      linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_NONE;
 
-      return false;
-    }
+  bool valid() const;
+  bool supported() const;
+};
 
-    if (GetModuleHandleW(L"d3d10warp.dll") != NULL) {
-      WCHAR FullModuleFilePath[MAX_PATH] = L"";
-      GetModuleFileNameW(GetModuleHandleW(L"d3d10warp.dll"), FullModuleFilePath,
-                         sizeof(FullModuleFilePath));
-      WEX::Logging::Log::Comment(WEX::Common::String().Format(
-          L"WARP driver loaded from: %ls", FullModuleFilePath));
-    }
+struct ThreadGroupMatrixMultiplyQuery {
+  WaveMatrixMultiplyInputs WaveInputs;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MATRIX_SHAPE Shape;
+  UINT ThreadGroupSize;
+};
 
-  } else {
-    CComPtr<IDXGIAdapter1> HardwareAdapter;
-    WEX::Common::String AdapterValue;
-    HRESULT HR = WEX::TestExecution::RuntimeParameters::TryGetValue(
-        L"Adapter", AdapterValue);
-    if (SUCCEEDED(HR))
-      st::GetHardwareAdapter(DXGIFactory, AdapterValue, &HardwareAdapter);
-    else
-      WEX::Logging::Log::Comment(
-          L"Using default hardware adapter with D3D12 support.");
+struct ThreadGroupMatrixMultiplySupport {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS SupportFlags =
+      linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_NONE;
+  bool valid() const;
+  bool supported() const;
+};
 
-    VERIFY_SUCCEEDED(D3D12CreateDevice(HardwareAdapter, D3D_FEATURE_LEVEL_11_0,
-                                       IID_PPV_ARGS(&D3DDeviceCom)));
-  }
-  // retrieve adapter information
-  const LUID AdapterID = D3DDeviceCom->GetAdapterLuid();
-  CComPtr<IDXGIAdapter> DXGIAdapter;
-  DXGIFactory->EnumAdapterByLuid(AdapterID, IID_PPV_ARGS(&DXGIAdapter));
-  DXGI_ADAPTER_DESC AdapterDesc;
-  VERIFY_SUCCEEDED(DXGIAdapter->GetDesc(&AdapterDesc));
-  hlsl_test::LogCommentFmt(L"Using Adapter:%s", AdapterDesc.Description);
+struct ThreadVectorMatrixMultiplyQuery {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE VectorInputType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE MatrixInputType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE BiasInputType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE VectorResultType;
+};
 
-  if (D3DDeviceCom == nullptr)
-    return false;
+struct ThreadVectorMatrixMultiplySupport {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS SupportFlags =
+      linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAG_NONE;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE MatrixInputType =
+      linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE_NONE;
 
-  if (!useDxbc()) {
-    // Check for DXIL support.
-    typedef struct D3D12_FEATURE_DATA_SHADER_MODEL {
-      ExecTestUtils::D3D_SHADER_MODEL HighestShaderModel;
-    } D3D12_FEATURE_DATA_SHADER_MODEL;
-    const UINT D3D12_FEATURE_SHADER_MODEL = 7;
-    D3D12_FEATURE_DATA_SHADER_MODEL SMData;
-    SMData.HighestShaderModel = TestModel;
-    if (FAILED(D3DDeviceCom->CheckFeatureSupport(
-            (D3D12_FEATURE)D3D12_FEATURE_SHADER_MODEL, &SMData,
-            sizeof(SMData))) ||
-        SMData.HighestShaderModel < TestModel) {
-      const UINT Minor = (UINT)TestModel & 0x0f;
-      hlsl_test::LogCommentFmt(L"The selected device does not support "
-                               L"shader model 6.%1u",
-                               Minor);
+  bool valid() const;
+  bool supported() const;
+};
 
-      if (SkipUnsupported)
-        WEX::Logging::Log::Result(WEX::Logging::TestResults::Skipped);
+struct ThreadOuterProductQuery {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE InputComponentType;
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE ResultComponentType;
+};
 
-      return false;
-    }
-  }
+struct ThreadOuterProductSupport {
+  bool Supported = false;
 
-  if (useDebugIfaces()) {
-    CComPtr<ID3D12InfoQueue> InfoQueue;
-    if (SUCCEEDED(D3DDeviceCom->QueryInterface(&InfoQueue)))
-      InfoQueue->SetMuteDebugOutput(FALSE);
-  }
+  bool supported() const { return Supported; }
+};
 
-  *D3DDevice = D3DDeviceCom.Detach();
-  return true;
-}
+struct AtomicAccumulateStoreQuery {
+  linalg_abi::D3D12_LINEAR_ALGEBRA_DATATYPE ComponentType;
+};
 
-inline void readHlslDataIntoNewStream(LPCWSTR RelativePath, IStream **Stream,
-                                      dxc::SpecificDllLoader &Support) {
-  VERIFY_SUCCEEDED(
-      Support.InitializeForDll(dxc::kDxCompilerLib, "DxcCreateInstance"));
-  CComPtr<IDxcLibrary> Library;
-  CComPtr<IDxcBlobEncoding> Blob;
-  CComPtr<IStream> StreamCom;
-  std::wstring Path = hlsl_test::GetPathToHlslDataFile(
-      RelativePath, HLSLDATAFILEPARAM, DEFAULT_EXEC_TEST_DIR);
-  VERIFY_SUCCEEDED(Support.CreateInstance(CLSID_DxcLibrary, &Library));
-  VERIFY_SUCCEEDED(Library->CreateBlobFromFile(Path.c_str(), nullptr, &Blob));
-  VERIFY_SUCCEEDED(Library->CreateStreamFromBlobReadOnly(Blob, &StreamCom));
-  *Stream = StreamCom.Detach();
-}
+struct AtomicAccumulateStoreSupport {
+  bool RWByteAddressBufferSupported = false;
+  bool GroupSharedSupported = false;
 
-static HRESULT enableAgilitySDK(HMODULE Runtime, UINT SDKVersion,
-                                LPCWSTR SDKPath) {
-  D3D12GetInterfaceFn GetInterfaceFunc =
-      (D3D12GetInterfaceFn)GetProcAddress(Runtime, "D3D12GetInterface");
-  CComPtr<ID3D12SDKConfiguration> D3D12SDKConfiguration;
-  IFR(GetInterfaceFunc(CLSID_D3D12SDKConfiguration,
-                       IID_PPV_ARGS(&D3D12SDKConfiguration)));
-  IFR(D3D12SDKConfiguration->SetSDKVersion(SDKVersion, CW2A(SDKPath)));
+  bool supports(AtomicDestination Destination) const;
+};
 
-  // Currently, it appears that the SetSDKVersion will succeed even when
-  // D3D12Core is not found, or its version doesn't match.  When that's the
-  // case, will cause a failure in the very next thing that actually requires
-  // D3D12Core.dll to be loaded instead.  So, we attempt to clear experimental
-  // features next, which is a valid use case and a no-op at this point.  This
-  // requires D3D12Core to be loaded.  If this fails, we know the AgilitySDK
-  // setting actually failed.
-  D3D12EnableExperimentalFeaturesFn ExperimentalFeaturesFunc =
-      (D3D12EnableExperimentalFeaturesFn)GetProcAddress(
-          Runtime, "D3D12EnableExperimentalFeatures");
-  if (ExperimentalFeaturesFunc == nullptr)
-    // If this failed, D3D12 must be too old for AgilitySDK.  But if that's
-    // the case, creating D3D12SDKConfiguration should have failed.  So while
-    // this case shouldn't be hit, fail if it is.
-    return HRESULT_FROM_WIN32(GetLastError());
+bool hasFlag(
+    linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS Value,
+    linalg_abi::D3D12_LINEAR_ALGEBRA_MULTIPLICATION_SUPPORT_FLAGS Flag);
+ScopeFlags
+legalScopes(linalg_abi::D3D12_LINEAR_ALGEBRA_OPERATION_TYPE Operation);
+bool isLegalScope(linalg_abi::D3D12_LINEAR_ALGEBRA_OPERATION_TYPE Operation,
+                  hlsl::DXIL::MatrixScope Scope);
+Applicability classifyApplicability(HRESULT QueryResult, bool Supported,
+                                    CapabilityRequirement Requirement);
 
-  return ExperimentalFeaturesFunc(0, nullptr, nullptr, nullptr);
-}
+HRESULT queryTierSupport(ID3D12Device *Device, TierSupport &Support);
+HRESULT queryMatrixConstruction(ID3D12Device *Device,
+                                const MatrixConstructionQuery &Query,
+                                MatrixConstructionSupport &Support);
+HRESULT queryWaveMatrixMultiply(ID3D12Device *Device,
+                                const WaveMatrixMultiplyQuery &Query,
+                                WaveMatrixMultiplySupport &Support);
+HRESULT
+queryThreadGroupMatrixMultiply(ID3D12Device *Device,
+                               const ThreadGroupMatrixMultiplyQuery &Query,
+                               ThreadGroupMatrixMultiplySupport &Support);
+HRESULT
+queryThreadVectorMatrixMultiply(ID3D12Device *Device,
+                                const ThreadVectorMatrixMultiplyQuery &Query,
+                                ThreadVectorMatrixMultiplySupport &Support);
+HRESULT queryThreadOuterProduct(ID3D12Device *Device,
+                                const ThreadOuterProductQuery &Query,
+                                ThreadOuterProductSupport &Support);
+HRESULT queryAtomicAccumulateStore(ID3D12Device *Device,
+                                   const AtomicAccumulateStoreQuery &Query,
+                                   AtomicAccumulateStoreSupport &Support);
 
-static HRESULT
-enableExperimentalShaderModels(HMODULE hRuntime,
-                               UUID AdditionalFeatures[] = nullptr,
-                               size_t NumAdditionalFeatures = 0) {
-  D3D12EnableExperimentalFeaturesFn ExperimentalFeaturesFunc =
-      (D3D12EnableExperimentalFeaturesFn)GetProcAddress(
-          hRuntime, "D3D12EnableExperimentalFeatures");
-  if (ExperimentalFeaturesFunc == nullptr)
-    return HRESULT_FROM_WIN32(GetLastError());
+} // namespace linalg_test
 
-  std::vector<UUID> Features;
+// TODO(#8661): Remove me when GroupSharedLimit is available in a released
+// Windows SDK.
+#if defined(HLSLEXEC_GROUPSHARED_LIMITS)
+UINT getMaxGroupSharedMemoryCS(ID3D12Device *Device);
+UINT getMaxGroupSharedMemoryAS(ID3D12Device *Device);
+UINT getMaxGroupSharedMemoryMS(ID3D12Device *Device);
+#endif // defined(HLSLEXEC_GROUPSHARED_LIMITS)
 
-  Features.push_back(D3D12ExperimentalShaderModels);
+/// Create a ShaderOp for a compute shader dispatch.
+std::unique_ptr<st::ShaderOp>
+createComputeOp(const char *Source, const char *Target, const char *RootSig,
+                const char *Args = nullptr, UINT DispatchX = 1,
+                UINT DispatchY = 1, UINT DispatchZ = 1);
 
-  if (AdditionalFeatures != nullptr && NumAdditionalFeatures > 0)
-    Features.insert(Features.end(), AdditionalFeatures,
-                    AdditionalFeatures + NumAdditionalFeatures);
+/// Add a UAV buffer resource to a ShaderOp.
+void addUAVBuffer(st::ShaderOp *Op, const char *Name, UINT64 Width,
+                  bool ReadBack, const char *Init = "zero");
 
-  return ExperimentalFeaturesFunc((UINT)Features.size(), Features.data(),
-                                  nullptr, nullptr);
-}
+/// Add a SRV buffer resource to a ShaderOp.
+void addSRVBuffer(st::ShaderOp *Op, const char *Name, UINT64 Width,
+                  const char *Init = "zero");
 
-static HRESULT
-enableExperimentalShaderModels(UUID AdditionalFeatures[] = nullptr,
-                               size_t NumAdditionalFeatures = 0) {
-  HMODULE Runtime = LoadLibraryW(L"d3d12.dll");
-  if (Runtime == NULL)
-    return E_FAIL;
-  return enableExperimentalShaderModels(Runtime, AdditionalFeatures,
-                                        NumAdditionalFeatures);
-}
+/// Bind a resource to a root view parameter by index.
+void addRootView(st::ShaderOp *Op, UINT Index, const char *ResName);
 
-static HRESULT disableExperimentalShaderModels() {
-  HMODULE Runtime = LoadLibraryW(L"d3d12.dll");
-  if (Runtime == NULL)
-    return E_FAIL;
+/// Add a raw-buffer UAV descriptor for a resource to a shader-visible
+/// descriptor heap, creating the heap on first use. ViewBytes sizes the view
+/// independently of the resource it looks at, which is the whole point of
+/// binding this way: a root view is a bare address, so the shader has no
+/// dimensions to bounds check against, while a descriptor carries them.
+/// Descriptors are consumed in the order added, matching the register order of
+/// the ranges declared in the root signature.
+void addHeapRawUAV(st::ShaderOp *Op, const char *HeapName, const char *ResName,
+                   UINT64 ViewBytes);
 
-  D3D12EnableExperimentalFeaturesFn ExperimentalFeaturesFunc =
-      (D3D12EnableExperimentalFeaturesFn)GetProcAddress(
-          Runtime, "D3D12EnableExperimentalFeatures");
-  if (ExperimentalFeaturesFunc == nullptr)
-    return HRESULT_FROM_WIN32(GetLastError());
+/// Bind a descriptor heap to a root descriptor-table parameter by index.
+void addRootTable(st::ShaderOp *Op, UINT Index, const char *HeapName);
 
-  return ExperimentalFeaturesFunc(0, nullptr, nullptr, nullptr);
-}
+/// Run a programmatically-built ShaderOp and return the result.
+std::shared_ptr<st::ShaderOpTestResult>
+runShaderOp(ID3D12Device *Device, dxc::SpecificDllLoader &DxcSupport,
+            std::unique_ptr<st::ShaderOp> Op,
+            st::ShaderOpTest::TInitCallbackFn InitCallback = nullptr,
+            st::ShaderOpTest::TCommandCallbackFn PostDispatchCallback = nullptr,
+            st::ShaderOpTest::TCommandCallbackFn PreDispatchCallback = nullptr);
 
-static HRESULT enableAgilitySDK(HMODULE Runtime) {
-  // D3D12SDKVersion > 1 will use provided version, otherwise, auto-detect.
-  // D3D12SDKVersion == 1 means fail if we can't auto-detect.
-  UINT SDKVersion = 0;
-  WEX::TestExecution::RuntimeParameters::TryGetValue(L"D3D12SDKVersion",
-                                                     SDKVersion);
+/// Compiles an HLSL shader using the DXC API to verify it is well-formed.
+/// Fails the test on compile error.
+void compileShader(dxc::SpecificDllLoader &DxcSupport, const char *Source,
+                   const char *Target, const std::string &Args,
+                   bool VerboseLogging = false);
 
-  // SDKPath must be relative path from .exe, which means relative to
-  // TE.exe location, and must start with ".\\", such as with the
-  // default: ".\\D3D12\\"
-  WEX::Common::String SDKPath;
-  if (SUCCEEDED(WEX::TestExecution::RuntimeParameters::TryGetValue(
-          L"D3D12SDKPath", SDKPath))) {
-    // Make sure path ends in backslash
-    if (!SDKPath.IsEmpty() && SDKPath.Right(1) != "\\")
-      SDKPath.Append("\\");
-  }
+// Host-side linear-algebra matrix-conversion helpers, which need the D3D12
+// linear-algebra API -- see HLSLEXEC_LINALG_HOST_API above. When absent, these
+// helpers and the tests using them are compiled out (they Skip at runtime).
+#if defined(HLSLEXEC_LINALG_HOST_API)
+/// Query the number of bytes required to store an NumRows x NumColumns matrix
+/// of the given datatype in the specified device layout. Fails the test if the
+/// device cannot serve the request, which it reports as a zero size.
+UINT getLinAlgMatrixByteSize(ID3D12Device *Device, UINT NumRows,
+                             UINT NumColumns,
+                             D3D12_LINEAR_ALGEBRA_DATATYPE DataType,
+                             D3D12_LINEAR_ALGEBRA_MATRIX_LAYOUT Layout,
+                             UINT Stride);
 
-  if (SDKPath.IsEmpty())
-    SDKPath = L".\\D3D12\\";
-
-  const bool MustFind = SDKVersion > 0;
-  if (SDKVersion <= 1) {
-    // lookup version from D3D12Core.dll
-    SDKVersion = getD3D12SDKVersion((LPCWSTR)SDKPath);
-    if (MustFind && SDKVersion == 0) {
-      hlsl_test::LogErrorFmt(L"Agility SDK not found in relative path: %s",
-                             (LPCWSTR)SDKPath);
-      return E_FAIL;
-    }
-  }
-
-  // Not found, not asked for.
-  if (SDKVersion == 0)
-    return S_FALSE;
-
-  HRESULT HR = enableAgilitySDK(Runtime, SDKVersion, (LPCWSTR)SDKPath);
-  if (FAILED(HR)) {
-    // If SDKVersion provided, fail if not successful.
-    // 1 means we should find it, and fill in the version automatically.
-    if (MustFind) {
-      hlsl_test::LogErrorFmt(
-          L"Failed to set Agility SDK version %d at path: %s", SDKVersion,
-          (LPCWSTR)SDKPath);
-      return HR;
-    }
-    return S_FALSE;
-  }
-  if (HR == S_OK)
-    hlsl_test::LogCommentFmt(L"Agility SDK version set to: %d", SDKVersion);
-
-  return HR;
-}
-
-static HRESULT enableExperimentalMode(HMODULE Runtime) {
-#ifdef _FORCE_EXPERIMENTAL_SHADERS
-  bool ExperimentalShaderModels = true;
-#else
-  bool ExperimentalShaderModels =
-      hlsl_test::GetTestParamBool(L"ExperimentalShaders");
-#endif // _FORCE_EXPERIMENTAL_SHADERS
-
-  HRESULT HR = S_FALSE;
-  if (ExperimentalShaderModels) {
-    HR = enableExperimentalShaderModels(Runtime);
-    if (SUCCEEDED(HR))
-      WEX::Logging::Log::Comment(L"Experimental shader models enabled.");
-  }
-
-  return HR;
-}
-
-static HRESULT enableDebugLayer() {
-  // The debug layer does net yet validate DXIL programs that require
-  // rewriting, but basic logging should work properly.
-  HRESULT HR = S_FALSE;
-  if (useDebugIfaces()) {
-    CComPtr<ID3D12Debug> DebugController;
-    HR = D3D12GetDebugInterface(IID_PPV_ARGS(&DebugController));
-    if (SUCCEEDED(HR)) {
-      DebugController->EnableDebugLayer();
-      HR = S_OK;
-    }
-  }
-  return HR;
-}
+/// Record a GPU matrix layout conversion onto \p List using
+/// IHlslExecLinAlgCommandList::ConvertLinearAlgebraMatrix. Both
+/// \p SrcBuffer (in \p SrcLayout) and \p DestBuffer (receiving \p DestLayout)
+/// must be passed in the D3D12_RESOURCE_STATE_UNORDERED_ACCESS state; the
+/// conversion requires the source in NON_PIXEL_SHADER_RESOURCE, so this helper
+/// transitions it and leaves the destination in UNORDERED_ACCESS. The caller is
+/// responsible for ensuring that writes to \p SrcBuffer have completed before
+/// this conversion reads it.
+void recordLinAlgMatrixConversion(
+    ID3D12GraphicsCommandList *List, ID3D12Resource *SrcBuffer, UINT SrcSize,
+    ID3D12Resource *DestBuffer, UINT DestSize, UINT NumRows, UINT NumColumns,
+    D3D12_LINEAR_ALGEBRA_DATATYPE DataType,
+    D3D12_LINEAR_ALGEBRA_MATRIX_LAYOUT SrcLayout, UINT SrcStride,
+    D3D12_LINEAR_ALGEBRA_MATRIX_LAYOUT DestLayout, UINT DestStride);
+#endif // defined(HLSLEXEC_LINALG_HOST_API)
 
 #endif // HLSLEXECTESTUTILS_H

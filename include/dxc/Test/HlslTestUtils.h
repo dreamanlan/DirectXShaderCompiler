@@ -47,7 +47,8 @@
 #include "dxc/Test/TestConfig.h"
 #endif
 
-using namespace std;
+using std::max;
+using std::min;
 
 #ifndef HLSLDATAFILEPARAM
 #define HLSLDATAFILEPARAM L"HlslDataDir"
@@ -121,12 +122,12 @@ static constexpr wchar_t wideWhitespaceChars[] = L" \t\r\n";
 
 inline std::string strltrim(const std::string &value) {
   size_t first = value.find_first_not_of(whitespaceChars);
-  return first == string::npos ? value : value.substr(first);
+  return first == std::string::npos ? value : value.substr(first);
 }
 
 inline std::string strrtrim(const std::string &value) {
   size_t last = value.find_last_not_of(whitespaceChars);
-  return last == string::npos ? value : value.substr(0, last + 1);
+  return last == std::string::npos ? value : value.substr(0, last + 1);
 }
 
 inline std::string strtrim(const std::string &value) {
@@ -258,6 +259,18 @@ inline void LogErrorFmt(const wchar_t *fmt, ...) {
   std::wstring buf(vFormatToWString(fmt, args));
   va_end(args);
   WEX::Logging::Log::Error(buf.data());
+}
+
+inline void LogWarningFmt(const wchar_t *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  std::wstring buf(vFormatToWString(fmt, args));
+  va_end(args);
+#ifdef _WIN32
+  WEX::Logging::Log::Warning(buf.data());
+#else
+  WEX::Logging::Log::Comment((L"WARNING: " + buf).data());
+#endif
 }
 
 inline void LogErrorFmtThrow(const char *fileName, int line, const wchar_t *fmt,
@@ -568,7 +581,7 @@ inline bool CompareDoubleULP(
 }
 
 inline bool CompareDoubleEpsilon(const double &Src, const double &Ref,
-                                 float Epsilon) {
+                                 double Epsilon) {
   if (Src == Ref) {
     return true;
   }

@@ -47,8 +47,10 @@ enum LEGAL_INTRINSIC_TEMPLATES {
       4, // Any one of scalar, vector or matrix types (but not object).
   LITEMPLATE_OBJECT = 5, // Object types.
   LITEMPLATE_ARRAY = 6,  // Scalar array.
+  LITEMPLATE_ANY_ARRAY =
+      7, // Array of scalars or of vectors of scalars (eg. float3[4]).
 
-  LITEMPLATE_COUNT = 7
+  LITEMPLATE_COUNT = 8
 };
 
 // INTRIN_COMPTYPE_FROM_TYPE_ELT0 is for object method intrinsics to indicate
@@ -130,15 +132,28 @@ enum LEGAL_INTRINSIC_COMPTYPES {
   LICOMPTYPE_HIT_OBJECT = 51,
   LICOMPTYPE_RAY_QUERY = 52,
 
-  LICOMPTYPE_LINALG = 53, // f32, partial-precision-f32, f16,
+  LICOMPTYPE_LINALG_MATRIX = 53,
+
+  LICOMPTYPE_LINALG = 54, // f32, partial-precision-f32, f16,
                           // i32, i16, u32, u16,
                           // int8_4packed, uint8_4packed
 
+  LICOMPTYPE_BUILTIN_TRIANGLE_POSITIONS = 55,
+
 #ifdef ENABLE_SPIRV_CODEGEN
-  LICOMPTYPE_VK_BUFFER_POINTER = 54,
-  LICOMPTYPE_COUNT = 55
+  LICOMPTYPE_VK_BUFFER_POINTER = 56,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE1D = 57,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE1D_ARRAY = 58,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE2D = 59,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE2D_ARRAY = 60,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE2DMS = 61,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE2DMS_ARRAY = 62,
+  LICOMPTYPE_VK_SAMPLED_TEXTURE3D = 63,
+  LICOMPTYPE_VK_SAMPLED_TEXTURECUBE = 64,
+  LICOMPTYPE_VK_SAMPLED_TEXTURECUBE_ARRAY = 65,
+  LICOMPTYPE_COUNT = 66
 #else
-  LICOMPTYPE_COUNT = 54
+  LICOMPTYPE_COUNT = 56
 #endif
 };
 
@@ -178,6 +193,8 @@ static const UINT INTRIN_FLAG_READ_ONLY = 1U << 0;
 static const UINT INTRIN_FLAG_READ_NONE = 1U << 1;
 static const UINT INTRIN_FLAG_IS_WAVE = 1U << 2;
 static const UINT INTRIN_FLAG_STATIC_MEMBER = 1U << 3;
+// Method mutates the object (cannot be called on a const-qualified instance).
+static const UINT INTRIN_FLAG_MUTABLE_METHOD = 1U << 4;
 
 struct HLSL_INTRINSIC {
   UINT Op;                 // Intrinsic Op ID
@@ -188,6 +205,8 @@ struct HLSL_INTRINSIC {
                            // type
   UINT uNumArgs;           // Count of arguments in pArgs.
   const HLSL_INTRINSIC_ARGUMENT *pArgs; // Pointer to first argument.
+  UINT MaxShaderModel; // Encoded maximum shader model, 0 = no maximum
+                       // (Major << 4) + (Minor & 0xf)
 };
 
 ///////////////////////////////////////////////////////////////////////////////

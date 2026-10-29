@@ -349,6 +349,7 @@ PCSTR g_pFeatureInfoNames[] = {
     "Writeable MSAA Textures",
     "SampleCmp with gradient or bias",
     "Extended command info",
+    "Linear Algebra",
 };
 static_assert(_countof(g_pFeatureInfoNames) == ShaderFeatureInfoCount,
               "g_pFeatureInfoNames needs to be updated");
@@ -1312,7 +1313,10 @@ public:
     }
 
     unsigned opcodeVal = CInt->getZExtValue();
-    if (opcodeVal >= (unsigned)DXIL::OpCode::NumOpCodes) {
+    OP::OpCodeTableID TableID;
+    unsigned OpIndex;
+    unsigned TableIndex;
+    if (!hlsl::OP::DecodeOpCode(opcodeVal, TableID, OpIndex, &TableIndex)) {
       OS << "  ; invalid DXIL opcode #" << opcodeVal;
       return;
     }
@@ -1321,7 +1325,7 @@ public:
     // name/binding
     DXIL::OpCode opcode = (DXIL::OpCode)opcodeVal;
     OS << "  ; " << hlsl::OP::GetOpCodeName(opcode)
-       << OpCodeSignatures[opcodeVal];
+       << OpCodeSignatures[TableIndex][OpIndex];
 
     // Add extra decoding for certain ops
     switch (opcode) {

@@ -130,6 +130,10 @@ void CapabilityVisitor::addCapabilityForType(const SpirvType *type,
   }
   // Image types
   else if (const auto *imageType = dyn_cast<ImageType>(type)) {
+    if (imageType->isArrayedImage() && imageType->isMSImage() &&
+        imageType->withSampler() == ImageType::WithSampler::No)
+      addCapability(spv::Capability::ImageMSArray);
+
     switch (imageType->getDimension()) {
     case spv::Dim::Buffer: {
       addCapability(spv::Capability::SampledBuffer);
@@ -615,9 +619,13 @@ bool CapabilityVisitor::visitInstruction(SpirvInstruction *instr) {
   }
   case spv::Op::OpControlBarrier:
   case spv::Op::OpMemoryBarrier: {
-    auto barrier = cast<SpirvBarrier>(instr);
-    if ((bool)(barrier->getMemorySemantics() &
-               spv::MemorySemanticsMask::OutputMemoryKHR)) {
+    auto barrier = dyn_cast<SpirvBarrier>(instr);
+    // barrier will be null if the instruction was generated from inline spir-v.
+    // In that case, it is the user's responsibility to ensure the correct
+    // capabilities are added.
+    if (barrier && (barrier->getMemorySemantics() &
+                    spv::MemorySemanticsMask::OutputMemoryKHR) ==
+                       spv::MemorySemanticsMask::OutputMemoryKHR) {
       featureManager.requestTargetEnv(SPV_ENV_VULKAN_1_3, "NODE_OUTPUT_MEMORY",
                                       loc);
       addCapability(spv::Capability::VulkanMemoryModel, loc);
@@ -790,6 +798,9 @@ bool CapabilityVisitor::visit(SpirvExtInstImport *instr) {
              "NonSemantic.Shader.DebugInfo.100") {
     addExtension(Extension::KHR_non_semantic_info, "Shader.DebugInfo.100",
                  /*SourceLocation*/ {});
+  } else if (instr->getExtendedInstSetName() == "NonSemantic.DebugBreak") {
+    addExtension(Extension::KHR_non_semantic_info, "DebugBreak",
+                 /*SourceLocation*/ {});
   }
   return true;
 }
@@ -946,6 +957,15 @@ bool CapabilityVisitor::visit(SpirvModule *, Visitor::Phase phase) {
 
   addExtensionAndCapabilitiesIfEnabled(Extension::KHR_quad_control,
                                        {spv::Capability::QuadControlKHR});
+
+  if (spvOptions.useDescriptorHeap) {
+    const llvm::StringRef feature = "DescriptorHeap";
+    if (!featureManager.requestTargetEnv(SPV_ENV_VULKAN_1_3, feature, {}))
+      return false;
+    addExtension(Extension::EXT_descriptor_heap, feature, {});
+    addExtension(Extension::KHR_untyped_pointers, feature, {});
+    addCapability(spv::Capability::DescriptorHeapEXT);
+  }
 
   return true;
 }

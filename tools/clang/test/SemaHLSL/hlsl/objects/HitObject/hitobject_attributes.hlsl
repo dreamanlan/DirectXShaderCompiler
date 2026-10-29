@@ -1,3 +1,4 @@
+// REQUIRES: dxil-1-9
 // RUN: %dxc -T lib_6_9 -E main %s -ast-dump-implicit | FileCheck %s --check-prefix AST
 // RUN: %dxc -T lib_6_9 -E main %s -fcgl | FileCheck %s --check-prefix FCGL
 
@@ -7,7 +8,7 @@
 // AST-NEXT: | | | |-TemplateTypeParmDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> class TAttributes
 // AST-NEXT: | | | |-CXXMethodDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> implicit GetAttributes 'TResult (TAttributes &) const'
 // AST-NEXT: | | | | `-ParmVarDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> Attributes 'TAttributes &'
-// AST-NEXT: | | | `-CXXMethodDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> used GetAttributes 'void (CustomAttrs &)' extern
+// AST-NEXT: | | | `-CXXMethodDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> used GetAttributes 'void (CustomAttrs &) const' extern
 // AST-NEXT: | | |   |-TemplateArgument type 'void'
 // AST-NEXT: | | |   |-TemplateArgument type 'CustomAttrs'
 // AST-NEXT: | | |   |-ParmVarDecl {{[^ ]+}} <<invalid sloc>> <invalid sloc> GetAttributes 'CustomAttrs &&__restrict'

@@ -714,8 +714,6 @@ public:
 
       unsigned rootSigMajor = 0;
       unsigned rootSigMinor = 0;
-      // NOTE: this calls the validation component from dxil.dll; the built-in
-      // validator can be used as a fallback.
       bool produceFullContainer = false;
       bool needsValidation = false;
       bool validateRootSigContainer = false;
@@ -747,7 +745,7 @@ public:
 
         // Parse and apply
         if (opts.BindingTableDefine.size()) {
-          // Just pas the define for now because preprocessor is not available
+          // Just pass the define for now because preprocessor is not available
           // yet.
           struct BindingTableParserImpl
               : public CodeGenOptions::BindingTableParserType {
@@ -830,13 +828,8 @@ public:
           compiler.getLangOpts().HLSLEntryFunction =
               compiler.getCodeGenOpts().HLSLEntryFunction = "";
 
-        // NOTE: this calls the validation component from dxil.dll; the built-in
-        // validator can be used as a fallback.
-        produceFullContainer = !opts.CodeGenHighLevel && !opts.AstDump &&
-                               !opts.OptDump && rootSigMajor == 0 &&
-                               !opts.DumpDependencies &&
-                               !opts.VerifyDiagnostics;
-        needsValidation = produceFullContainer && !opts.DisableValidation;
+        produceFullContainer = opts.ProduceFullContainer();
+        needsValidation = opts.NeedsValidation();
 
         if (compiler.getCodeGenOpts().HLSLProfile == "lib_6_x") {
           // Currently do not support stripping reflection from offline linking
@@ -1092,7 +1085,10 @@ public:
               }
             }
 
-            if (pReflectionStream && pReflectionStream->GetPtrSize()) {
+            // Skip reflection generation here when targeting metal, this is
+            // handled below.
+            if (!opts.GenMetal && pReflectionStream &&
+                pReflectionStream->GetPtrSize()) {
               CComPtr<IDxcBlob> pReflection;
               IFT(pReflectionStream->QueryInterface(&pReflection));
               IFT(pResult->SetOutputObject(DXC_OUT_REFLECTION, pReflection));
@@ -1179,6 +1175,16 @@ public:
             std::unique_ptr<uint8_t[]> MetalLibBytes =
                 std::unique_ptr<uint8_t[]>(new uint8_t[MetalLibSize]);
             IRMetalLibGetBytecode(MetalLib, MetalLibBytes.get());
+
+            if (!opts.OutputReflectionFile.empty()) {
+              IRShaderReflection *Reflection = IRShaderReflectionCreate();
+              IRObjectGetReflection(AIR, Stage, Reflection);
+              const char *RawJSON =
+                  IRShaderReflectionCopyJSONString(Reflection);
+              IFT(pResult->SetOutputString(DXC_OUT_REFLECTION, RawJSON,
+                                           strlen(RawJSON)));
+              IRShaderReflectionDestroy(Reflection);
+            }
 
             // Store the metallib to custom format or disk, or use to create a
             // MTLLibrary.

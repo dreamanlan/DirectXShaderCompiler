@@ -736,12 +736,18 @@ Decl *Parser::ParseStaticAssertDeclaration(SourceLocation &DeclEnd){
 
   ExprResult AssertMessage;
   if (Tok.is(tok::r_paren)) {
-    Diag(Tok, getLangOpts().CPlusPlus1z
-                  ? diag::warn_cxx14_compat_static_assert_no_message
-                  : diag::ext_static_assert_no_message)
-      << (getLangOpts().CPlusPlus1z
-              ? FixItHint()
-              : FixItHint::CreateInsertion(Tok.getLocation(), ", \"\""));
+    // HLSL Change Starts - In HLSL 202x, allow omitting the message just like
+    // C++17 does, without emitting an extension warning.
+    bool AllowNoMessage = getLangOpts().CPlusPlus1z ||
+                          (getLangOpts().HLSL &&
+                           getLangOpts().HLSLVersion >= hlsl::LangStd::v202x);
+    if (!AllowNoMessage)
+      Diag(Tok, diag::ext_static_assert_no_message)
+          << FixItHint::CreateInsertion(Tok.getLocation(), ", \"\"");
+    else if (getLangOpts().CPlusPlus1z)
+      Diag(Tok, diag::warn_cxx14_compat_static_assert_no_message)
+          << FixItHint();
+    // HLSL Change Ends
   } else {
     if (ExpectAndConsume(tok::comma)) {
       SkipUntil(tok::semi);
@@ -3741,6 +3747,19 @@ static bool IsBuiltInOrStandardCXX11Attribute(IdentifierInfo *AttrName,
   }
 }
 
+// HLSL Change Start
+static bool hasCXXAttributeInHLSL(IdentifierInfo *ScopeName,
+                                  IdentifierInfo *AttrName) {
+  if (ScopeName && ScopeName->getName() != "")
+    return false;
+
+  StringRef Name = AttrName->getName();
+  return llvm::StringSwitch<int>(Name)
+      .Case("__LinAlgMatrix_Attributes", true)
+      .Default(false);
+}
+// HLSL Change End
+
 /// ParseCXX11AttributeArgs -- Parse a C++11 attribute-argument-clause.
 ///
 /// [C++11] attribute-argument-clause:
@@ -3767,7 +3786,8 @@ bool Parser::ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
   // If the attribute isn't known, we will not attempt to parse any
   // arguments.
   if (!hasAttribute(AttrSyntax::CXX, ScopeName, AttrName,
-                    getTargetInfo().getTriple(), getLangOpts())) {
+                    getTargetInfo().getTriple(), getLangOpts()) &&
+      !hasCXXAttributeInHLSL(ScopeName, AttrName)) { // HLSL Change
     // Eat the left paren, then skip to the ending right paren.
     ConsumeParen();
     SkipUntil(tok::r_paren);

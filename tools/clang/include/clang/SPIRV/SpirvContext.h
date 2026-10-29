@@ -89,7 +89,8 @@ struct RuntimeArrayTypeMapInfo {
   static inline RuntimeArrayType *getTombstoneKey() { return nullptr; }
   static unsigned getHashValue(const RuntimeArrayType *Val) {
     return llvm::hash_combine(Val->getElementType(),
-                              Val->getStride().hasValue());
+                              Val->getStride().hasValue(),
+                              Val->getArrayStrideId());
   }
   static bool isEqual(const RuntimeArrayType *LHS,
                       const RuntimeArrayType *RHS) {
@@ -284,7 +285,8 @@ public:
                                 llvm::Optional<uint32_t> arrayStride);
   const RuntimeArrayType *
   getRuntimeArrayType(const SpirvType *elemType,
-                      llvm::Optional<uint32_t> arrayStride);
+                      llvm::Optional<uint32_t> arrayStride,
+                      SpirvInstruction *arrayStrideId = nullptr);
   const NodePayloadArrayType *
   getNodePayloadArrayType(const SpirvType *elemType,
                           const ParmVarDecl *nodeDecl);
@@ -296,6 +298,9 @@ public:
 
   const SpirvPointerType *getPointerType(const SpirvType *pointee,
                                          spv::StorageClass);
+
+  const UntypedPointerKHRType *getUntypedPointerKHRType(spv::StorageClass sc);
+  const BufferEXTType *getBufferEXTType(spv::StorageClass sc);
 
   FunctionType *getFunctionType(const SpirvType *ret,
                                 llvm::ArrayRef<const SpirvType *> param);
@@ -531,6 +536,12 @@ private:
   llvm::SmallVector<const HybridStructType *, 8> hybridStructTypes;
   llvm::DenseMap<const SpirvType *, SCToPtrTyMap> pointerTypes;
   llvm::SmallVector<const HybridPointerType *, 8> hybridPointerTypes;
+  llvm::DenseMap<spv::StorageClass, const UntypedPointerKHRType *,
+                 StorageClassDenseMapInfo>
+      untypedPointerKHRTypes;
+  llvm::DenseMap<spv::StorageClass, const BufferEXTType *,
+                 StorageClassDenseMapInfo>
+      bufferEXTTypes;
   llvm::MapVector<QualType, const ForwardPointerType *> forwardPointerTypes;
   llvm::MapVector<QualType, const SpirvPointerType *> forwardReferences;
   llvm::DenseSet<FunctionType *, FunctionTypeMapInfo> functionTypes;

@@ -16,6 +16,14 @@ if(NOT LLVM_FORCE_USE_OLD_TOOLCHAIN)
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.7)
       message(FATAL_ERROR "Host GCC version must be at least 4.7!")
     endif()
+    # GCC 13 has a known miscompilation bug in -funswitch-loops
+    # (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=109934) that causes
+    # widespread test failures at -O3. Disable -funswitch-loops for GCC 13.
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0 AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.0)
+      add_compile_options(-fno-unswitch-loops)
+      message(STATUS "Disabling -funswitch-loops due to GCC 13 miscompilation bug (PR109934)")
+    endif()
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.1)
       message(FATAL_ERROR "Host Clang version must be at least 3.1!")
@@ -354,12 +362,17 @@ if( MSVC )
     append("/analyze" CMAKE_CXX_FLAGS)
   endif ()
 
-  # Change release to always build debug information out-of-line, but
-  # also enable Reference optimization, ie dead function elimination.
+  # Change release to always build debug information out-of-line and enable
+  # function-level dead code elimination.
+  append("/Gy" CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE)
   if (NOT CMAKE_MSVC_DEBUG_INFORMATION_FORMAT)
     append("/Zi" CMAKE_CXX_FLAGS_RELEASE)
     append("/DEBUG /OPT:REF" CMAKE_SHARED_LINKER_FLAGS_RELEASE)
     append("/DEBUG /OPT:REF" CMAKE_EXE_LINKER_FLAGS_RELEASE)
+  endif()
+
+  if (DXC_OPTIMIZE_FOR_SIZE)
+    append("/Os" CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE)
   endif()
 
   # HLSL Changes End
@@ -567,9 +580,19 @@ if(LLVM_USE_SANITIZER)
   endif()
 endif()
 
-# Turn on -gsplit-dwarf if requested
-if(LLVM_USE_SPLIT_DWARF)
-  add_definitions("-gsplit-dwarf")
+# Turn on -gsplit-dwarf if requested in debug builds.
+if (LLVM_USE_SPLIT_DWARF AND
+    ((uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG") OR
+     (uppercase_CMAKE_BUILD_TYPE STREQUAL "RELWITHDEBINFO")))
+  # Limit to clang and gcc so far. Add compilers supporting this option.
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR
+      CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-gsplit-dwarf>)
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "-Wl,--gdb-index" LINKER_SUPPORTS_GDB_INDEX)
+    append_if(LINKER_SUPPORTS_GDB_INDEX "-Wl,--gdb-index"
+      CMAKE_EXE_LINKER_FLAGS CMAKE_MODULE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+  endif()
 endif()
 
 add_llvm_definitions( -D__STDC_CONSTANT_MACROS )
@@ -591,9 +614,7 @@ endif()
 # HLSL Change Ends
 
 # Add flags for add_dead_strip().
-# FIXME: With MSVS, consider compiling with /Gy and linking with /OPT:REF?
-# But MinSizeRel seems to add that automatically, so maybe disable these
-# flags instead if LLVM_NO_DEAD_STRIP is set.
+# HLSL Change - deleted outdated comment about /Gy.
 if(NOT CYGWIN AND NOT WIN32)
   if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin" AND
      NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG")

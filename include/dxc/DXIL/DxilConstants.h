@@ -29,7 +29,8 @@ namespace DXIL {
 const unsigned kDxilMajor = 1;
 /* <py::lines('VALRULE-TEXT')>hctdb_instrhelp.get_dxil_version_minor()</py>*/
 // VALRULE-TEXT:BEGIN
-const unsigned kDxilMinor = 9;
+const unsigned kDxilMinor = 11;
+const unsigned kDxilReleasedMinor = 10;
 // VALRULE-TEXT:END
 
 inline unsigned MakeDxilVersion(unsigned DxilMajor, unsigned DxilMinor) {
@@ -58,6 +59,11 @@ inline int CompareVersions(unsigned Major1, unsigned Minor1, unsigned Major2,
   if (Minor1 > Minor2)
     return 1;
   return 0;
+}
+
+// Use this instead of fixed version checks to enable experimental features.
+inline bool IsVersionExperimental(unsigned Major, unsigned Minor) {
+  return CompareVersions(Major, Minor, kDxilMajor, kDxilReleasedMinor) > 0;
 }
 
 // Utility for updating major,minor to max of current and new.
@@ -149,6 +155,10 @@ const unsigned kMinWaveSize = 4;
 const unsigned kMaxWaveSize = 128;
 const unsigned kDefaultMaxVectorLength = 4;
 const unsigned kSM69MaxVectorLength = 1024;
+const unsigned kLinAlgMatrixMaxK = 128;
+const unsigned kLinAlgMatrixMinK = 4;
+const unsigned kLinAlgThreadGroupMatrixMaxK = 1024;
+const unsigned kLinAlgThreadGroupMatrixMinK = 1;
 
 const float kMaxMipLodBias = 15.99f;
 const float kMinMipLodBias = -16.0f;
@@ -158,7 +168,7 @@ const unsigned kVecResRetStatusIndex = 1;
 
 /* <py::lines('OLOAD_DIMS-TEXT')>hctdb_instrhelp.get_max_oload_dims()</py>*/
 // OLOAD_DIMS-TEXT:BEGIN
-const unsigned kDxilMaxOloadDims = 2;
+const unsigned kDxilMaxOloadDims = 4;
 // OLOAD_DIMS-TEXT:END
 
 enum class ComponentType : uint32_t {
@@ -183,13 +193,38 @@ enum class ComponentType : uint32_t {
   PackedU8x32 = 18,
 
   // BEGIN NEW FOR SM 6.9
-  U8 = 19,
-  I8 = 20,
-  F8_E4M3 = 21,
+  I8 = 19,
+  U8 = 20,
+  F8_E4M3FN = 21,
   F8_E5M2 = 22,
   // END
 
+  // BEGIN NEW FOR SM 6.10
+  BFloat16 = 23,
+  // END
+
   LastEntry
+};
+
+enum class MatrixUse : uint32_t {
+  A = 0,
+  B = 1,
+  Accumulator = 2,
+};
+
+enum class MatrixScope : uint32_t {
+  Thread = 0,
+  Wave = 1,
+  ThreadGroup = 2,
+};
+
+enum class MatrixLayout : uint32_t {
+  RowMajor = 0,
+  ColumnMajor = 1,
+  MulOptimal = 2,
+  MulOptimalTranspose = 3,
+  OuterProductOptimal = 4,
+  OuterProductOptimalTranspose = 5,
 };
 
 // Must match D3D_INTERPOLATION_MODE
@@ -490,10 +525,80 @@ inline bool IsFeedbackTexture(DXIL::ResourceKind ResourceKind) {
          ResourceKind == DXIL::ResourceKind::FeedbackTexture2DArray;
 }
 
+// clang-format off
+// Python lines need to be not formatted.
+/* <py::lines('OPCODETABLE-ENUM')>hctdb_instrhelp.get_enum_decl("OpCodeTableID")</py>*/
+// clang-format on
+// OPCODETABLE-ENUM:BEGIN
+// Enumeration for DXIL opcode tables
+enum class OpCodeTableID : unsigned {
+  CoreOps = 0,             // Core DXIL operations
+  ExperimentalOps = 32768, // Experimental DXIL operations
+};
+// OPCODETABLE-ENUM:END
+
+// clang-format off
+// Python lines need to be not formatted.
+/* <py::lines('EXTOPCODES-ENUM')>hctdb_instrhelp.get_extended_table_opcode_enum_decls()</py>*/
+// clang-format on
+// EXTOPCODES-ENUM:BEGIN
+namespace ExperimentalOps {
+static const OpCodeTableID TableID = OpCodeTableID::ExperimentalOps;
+// Enumeration for ExperimentalOps DXIL operations
+enum class OpCode : unsigned {
+  //
+  ReservedE0 = 1,   // reserved
+  ReservedE1 = 2,   // reserved
+  ReservedE10 = 11, // reserved
+  ReservedE11 = 12, // reserved
+  ReservedE12 = 13, // reserved
+  ReservedE13 = 14, // reserved
+  ReservedE14 = 15, // reserved
+  ReservedE15 = 16, // reserved
+  ReservedE16 = 17, // reserved
+  ReservedE17 = 18, // reserved
+  ReservedE18 = 19, // reserved
+  ReservedE19 = 20, // reserved
+  ReservedE2 = 3,   // reserved
+  ReservedE20 = 21, // reserved
+  ReservedE21 = 22, // reserved
+  ReservedE22 = 23, // reserved
+  ReservedE23 = 24, // reserved
+  ReservedE24 = 25, // reserved
+  ReservedE25 = 26, // reserved
+  ReservedE26 = 27, // reserved
+  ReservedE27 = 28, // reserved
+  ReservedE28 = 29, // reserved
+  ReservedE29 = 30, // reserved
+  ReservedE3 = 4,   // reserved
+  ReservedE30 = 31, // reserved
+  ReservedE31 = 32, // reserved
+  ReservedE32 = 33, // reserved
+  ReservedE33 = 34, // reserved
+  ReservedE4 = 5,   // reserved
+  ReservedE5 = 6,   // reserved
+  ReservedE6 = 7,   // reserved
+  ReservedE7 = 8,   // reserved
+  ReservedE8 = 9,   // reserved
+  ReservedE9 = 10,  // reserved
+
+  // No-op
+  ExperimentalNop = 0, // nop does nothing
+
+  NumOpCodes = 35, // exclusive last value of enumeration
+};
+} // namespace ExperimentalOps
+static const unsigned NumOpCodeTables = 2;
+// EXTOPCODES-ENUM:END
+
+#define EXP_OPCODE(feature, opcode)                                            \
+  opcode =                                                                     \
+      (((unsigned)feature::TableID << 16) | (unsigned)feature::OpCode::opcode)
+
 // TODO: change opcodes.
 /* <py::lines('OPCODE-ENUM')>hctdb_instrhelp.get_enum_decl("OpCode")</py>*/
 // OPCODE-ENUM:BEGIN
-// Enumeration for operations specified by DXIL
+// Enumeration for CoreOps DXIL operations
 enum class OpCode : unsigned {
   //
   Reserved0 = 226,   // reserved
@@ -524,6 +629,10 @@ enum class OpCode : unsigned {
   ReservedC7 = 300,  // reserved
   ReservedC8 = 301,  // reserved
   ReservedC9 = 302,  // reserved
+  ReservedD0 = 305,  // reserved
+  ReservedD1 = 306,  // reserved
+  ReservedD2 = 307,  // reserved
+  ReservedD3 = 308,  // reserved
 
   // Amplification shader instructions
   DispatchMesh = 173, // Amplification shader intrinsic DispatchMesh
@@ -596,6 +705,10 @@ enum class OpCode : unsigned {
   IndexNodeHandle = 248, // returns the handle for the location in the output
                          // node array at the indicated index
 
+  // Debugging
+  DebugBreak = 343,         // triggers a breakpoint if debugging is enabled
+  IsDebuggingEnabled = 344, // returns true if debugging is enabled
+
   // Derivatives
   CalculateLOD = 81, // calculates the level of detail
   DerivCoarseX = 83, // computes the rate of change per stamp in x direction.
@@ -618,9 +731,10 @@ enum class OpCode : unsigned {
                          // i32, with accumulate to i32
 
   // Dot
-  Dot2 = 54, // Two-dimensional vector dot-product
-  Dot3 = 55, // Three-dimensional vector dot-product
-  Dot4 = 56, // Four-dimensional vector dot-product
+  Dot2 = 54,  // Two-dimensional vector dot-product
+  Dot3 = 55,  // Three-dimensional vector dot-product
+  Dot4 = 56,  // Four-dimensional vector dot-product
+  FDot = 311, // computes the n-dimensional vector dot-product
 
   // Double precision
   LegacyDoubleToFloat = 132,  // legacy fuction to convert double to float
@@ -655,6 +769,10 @@ enum class OpCode : unsigned {
   // Graphics shader
   ViewID = 138, // returns the view index
 
+  // Group Wave Ops
+  GetGroupWaveCount = 313, // returns the number of waves in the thread group
+  GetGroupWaveIndex = 312, // returns the index of the wave in the thread group
+
   // Helper Lanes
   IsHelperLane = 221, // returns true on helper lanes in pixel shaders
 
@@ -675,6 +793,7 @@ enum class OpCode : unsigned {
   AllocateRayQuery = 178,  // allocates space for RayQuery and return handle
   AllocateRayQuery2 = 258, // allocates space for RayQuery and return handle
   RayQuery_Abort = 181,    // aborts a ray query
+  RayQuery_CandidateClusterID = 315,     // returns candidate hit cluster ID
   RayQuery_CandidateGeometryIndex = 203, // returns candidate hit geometry index
   RayQuery_CandidateInstanceContributionToHitGroupIndex =
       214, // returns candidate hit InstanceContributionToHitGroupIndex
@@ -695,6 +814,8 @@ enum class OpCode : unsigned {
       193, // returns candidate triangle hit barycentrics
   RayQuery_CandidateTriangleFrontFace =
       191, // returns if current candidate triangle is front facing
+  RayQuery_CandidateTriangleObjectPosition =
+      319, // returns candidate triangle vertices in object space as <9 x float>
   RayQuery_CandidateTriangleRayT =
       199, // returns float representing the parametric point on the ray for the
            // current candidate triangle hit.
@@ -708,6 +829,7 @@ enum class OpCode : unsigned {
       182, // commits a non opaque triangle hit
   RayQuery_CommitProceduralPrimitiveHit =
       183,                               // commits a procedural primitive hit
+  RayQuery_CommittedClusterID = 316,     // returns committed hit cluster ID
   RayQuery_CommittedGeometryIndex = 209, // returns committed hit geometry index
   RayQuery_CommittedInstanceContributionToHitGroupIndex =
       215, // returns committed hit InstanceContributionToHitGroupIndex
@@ -731,6 +853,8 @@ enum class OpCode : unsigned {
       194, // returns committed triangle hit barycentrics
   RayQuery_CommittedTriangleFrontFace =
       192, // returns if current committed triangle is front facing
+  RayQuery_CommittedTriangleObjectPosition =
+      320, // returns committed triangle vertices in object space as <9 x float>
   RayQuery_CommittedWorldToObject3x4 =
       189, // returns matrix for transforming from world-space to object-space
            // for a Committed hit.
@@ -753,17 +877,52 @@ enum class OpCode : unsigned {
       160, // create resource handle from resource struct for library
 
   // Linear Algebra Operations
-  MatVecMul =
-      305, // Multiplies a MxK dimension matrix and a K sized input vector
-  MatVecMulAdd = 306, // multiplies a MxK dimension matrix and a K sized input
-                      // vector and adds an M-sized bias vector
-  OuterProductAccumulate =
-      307, // Computes the outer product between column vectors and an MxN
-           // matrix is accumulated component-wise atomically (with device
-           // scope) in memory
-  VectorAccumulate = 308, // Accumulates the components of a vector
-                          // component-wise atomically (with device scope) to
-                          // the corresponding elements of an array in memory
+  LinAlgConvert =
+      341, // Convert vector components from one interpretation to another
+  LinAlgCopyConvertMatrix =
+      324, // Converts and copies the element and use type of the source matrix
+           // to the destination matrix with optional transpose
+  LinAlgFillMatrix = 323, // fills a matrix with a scalar value
+  LinAlgMatVecMul =
+      336, // Multiplies a MxK dimension matrix and a K sized input vector
+  LinAlgMatVecMulAdd = 337, // Multiplies a MxK dimension matrix and a K sized
+                            // input vector then adds a M sized bias vector
+  LinAlgMatrixAccumulate = 335, // accumulate A or B matrix into Accumulator
+                                // matrix following LHS += RHS
+  LinAlgMatrixAccumulateToDescriptor =
+      338, // accumulates a matrix to a RWByteAddressBuffer
+  LinAlgMatrixAccumulateToMemory =
+      339, // accumulates a matrix to groupshared memory
+  LinAlgMatrixGetCoordinate =
+      328, // returns a two element vector containing the column and row of the
+           // matrix that the thread-local index corresponds to
+  LinAlgMatrixGetElement =
+      329, // returns the element of the matrix corresponding to the provided
+           // thread-local index
+  LinAlgMatrixLength =
+      327, // returns the number of elements stored in thread-local storage on
+           // the active thread for the provided matrix
+  LinAlgMatrixLoadFromDescriptor =
+      325, // fills a matrix with data from a [RW]ByteAddressBuffer
+  LinAlgMatrixLoadFromMemory =
+      326, // fills a matrix with data from a groupshared array
+  LinAlgMatrixMultiply =
+      334, // Returns the resulting matrix from multiplying A and B
+  LinAlgMatrixMultiplyAccumulate =
+      322, // Returns the resulting matrix from multiplying A and B and
+           // accumulating into C
+  LinAlgMatrixOuterProduct = 340, // Outer products an M sized vector and a N
+                                  // sized vector producing an MxN matrix
+  LinAlgMatrixQueryAccumulatorLayout =
+      333, // returns comptime 0 when accumulator matrix are A layout, 1 when B
+           // layout
+  LinAlgMatrixSetElement = 330, // sets the element of the matrix corresponding
+                                // to the provided thread-local index
+  LinAlgMatrixStoreToDescriptor =
+      331,                         // stores a matrix to a RWByteAddressBuffer
+  LinAlgMatrixStoreToMemory = 332, // stores a matrix to groupshared memory
+  LinAlgVectorAccumulateToDescriptor =
+      342, // Accumulates given vector to the buffer at the given offset
 
   // Mesh shader instructions
   EmitIndices = 169, // emit a primitive's vertex indices in a mesh shader
@@ -831,6 +990,10 @@ enum class OpCode : unsigned {
   RayTMin =
       153, // float representing the parametric starting point for the ray.
 
+  // Raytracing System Values
+  TriangleObjectPosition =
+      318, // returns triangle vertices in object space as <9 x float>
+
   // Raytracing hit uint System Values
   HitKind = 143, // Returns the value passed as HitKind in ReportIntersection().
                  // If intersection was reported by fixed-function triangle
@@ -850,7 +1013,8 @@ enum class OpCode : unsigned {
   PrimitiveIndex = 161, // PrimitiveIndex for raytracing shaders
 
   // Raytracing uint System Values
-  RayFlags = 144, // uint containing the current ray flags.
+  ClusterID = 314, // returns the user-defined ClusterID of the intersected CLAS
+  RayFlags = 144,  // uint containing the current ray flags.
 
   // Resources - gather
   TextureGather = 73,     // gathers the four texels that would be used in a
@@ -913,6 +1077,7 @@ enum class OpCode : unsigned {
 
   // Shader Execution Reordering
   HitObject_Attributes = 289,   // Returns the attributes set for this HitObject
+  HitObject_ClusterID = 317,    // returns the cluster ID of this committed hit
   HitObject_FromRayQuery = 263, // Creates a new HitObject representing a
                                 // committed hit from a RayQuery
   HitObject_FromRayQueryWithAttrs =
@@ -948,6 +1113,8 @@ enum class OpCode : unsigned {
       286, // Returns the shader table index set for this HitObject
   HitObject_TraceRay = 262, // Analogous to TraceRay but without invoking CH/MS
                             // and returns the intermediate state as a HitObject
+  HitObject_TriangleObjectPosition =
+      321, // returns triangle vertices in object space as <9 x float>
   HitObject_WorldRayDirection = 276, // Returns the ray direction in world space
   HitObject_WorldRayOrigin = 275,    // Returns the ray origin in world space
   HitObject_WorldToObject3x4 = 280,  // Returns the world to object space
@@ -1034,6 +1201,11 @@ enum class OpCode : unsigned {
   Unpack4x8 = 219, // unpacks 4 8-bit signed or unsigned values into int32 or
                    // int16 vector
 
+  // Vector reduce to scalar
+  VectorReduceAnd =
+      309, // Bitwise AND reduction of the vector returning a scalar
+  VectorReduceOr = 310, // Bitwise OR reduction of the vector returning a scalar
+
   // Wave
   WaveActiveAllEqual = 115, // returns 1 if all the lanes have the same value
   WaveActiveBallot = 116, // returns a struct with a bit set for each lane where
@@ -1081,10 +1253,95 @@ enum class OpCode : unsigned {
   NumOpCodes_Dxil_1_6 = 222,
   NumOpCodes_Dxil_1_7 = 226,
   NumOpCodes_Dxil_1_8 = 258,
+  NumOpCodes_Dxil_1_9 = 312,
+  NumOpCodes_Dxil_1_10 = 345,
 
-  NumOpCodes = 309 // exclusive last value of enumeration
+  NumOpCodes = 345,     // exclusive last value of enumeration
+  Invalid = 0xFFFFFFFF, // stable invalid OpCode value
+
+  // OpCodes for extended tables follow.
+
+  // OpCodeTableID = 32768
+  // ExperimentalOps
+  // ExperimentalNop = 0x80000000, 2147483648U, -2147483648
+  EXP_OPCODE(ExperimentalOps, ExperimentalNop), // nop does nothing
+  // ReservedE0 = 0x80000001, 2147483649U, -2147483647
+  EXP_OPCODE(ExperimentalOps, ReservedE0), // reserved
+  // ReservedE1 = 0x80000002, 2147483650U, -2147483646
+  EXP_OPCODE(ExperimentalOps, ReservedE1), // reserved
+  // ReservedE2 = 0x80000003, 2147483651U, -2147483645
+  EXP_OPCODE(ExperimentalOps, ReservedE2), // reserved
+  // ReservedE3 = 0x80000004, 2147483652U, -2147483644
+  EXP_OPCODE(ExperimentalOps, ReservedE3), // reserved
+  // ReservedE4 = 0x80000005, 2147483653U, -2147483643
+  EXP_OPCODE(ExperimentalOps, ReservedE4), // reserved
+  // ReservedE5 = 0x80000006, 2147483654U, -2147483642
+  EXP_OPCODE(ExperimentalOps, ReservedE5), // reserved
+  // ReservedE6 = 0x80000007, 2147483655U, -2147483641
+  EXP_OPCODE(ExperimentalOps, ReservedE6), // reserved
+  // ReservedE7 = 0x80000008, 2147483656U, -2147483640
+  EXP_OPCODE(ExperimentalOps, ReservedE7), // reserved
+  // ReservedE8 = 0x80000009, 2147483657U, -2147483639
+  EXP_OPCODE(ExperimentalOps, ReservedE8), // reserved
+  // ReservedE9 = 0x8000000A, 2147483658U, -2147483638
+  EXP_OPCODE(ExperimentalOps, ReservedE9), // reserved
+  // ReservedE10 = 0x8000000B, 2147483659U, -2147483637
+  EXP_OPCODE(ExperimentalOps, ReservedE10), // reserved
+  // ReservedE11 = 0x8000000C, 2147483660U, -2147483636
+  EXP_OPCODE(ExperimentalOps, ReservedE11), // reserved
+  // ReservedE12 = 0x8000000D, 2147483661U, -2147483635
+  EXP_OPCODE(ExperimentalOps, ReservedE12), // reserved
+  // ReservedE13 = 0x8000000E, 2147483662U, -2147483634
+  EXP_OPCODE(ExperimentalOps, ReservedE13), // reserved
+  // ReservedE14 = 0x8000000F, 2147483663U, -2147483633
+  EXP_OPCODE(ExperimentalOps, ReservedE14), // reserved
+  // ReservedE15 = 0x80000010, 2147483664U, -2147483632
+  EXP_OPCODE(ExperimentalOps, ReservedE15), // reserved
+  // ReservedE16 = 0x80000011, 2147483665U, -2147483631
+  EXP_OPCODE(ExperimentalOps, ReservedE16), // reserved
+  // ReservedE17 = 0x80000012, 2147483666U, -2147483630
+  EXP_OPCODE(ExperimentalOps, ReservedE17), // reserved
+  // ReservedE18 = 0x80000013, 2147483667U, -2147483629
+  EXP_OPCODE(ExperimentalOps, ReservedE18), // reserved
+  // ReservedE19 = 0x80000014, 2147483668U, -2147483628
+  EXP_OPCODE(ExperimentalOps, ReservedE19), // reserved
+  // ReservedE20 = 0x80000015, 2147483669U, -2147483627
+  EXP_OPCODE(ExperimentalOps, ReservedE20), // reserved
+  // ReservedE21 = 0x80000016, 2147483670U, -2147483626
+  EXP_OPCODE(ExperimentalOps, ReservedE21), // reserved
+  // ReservedE22 = 0x80000017, 2147483671U, -2147483625
+  EXP_OPCODE(ExperimentalOps, ReservedE22), // reserved
+  // ReservedE23 = 0x80000018, 2147483672U, -2147483624
+  EXP_OPCODE(ExperimentalOps, ReservedE23), // reserved
+  // ReservedE24 = 0x80000019, 2147483673U, -2147483623
+  EXP_OPCODE(ExperimentalOps, ReservedE24), // reserved
+  // ReservedE25 = 0x8000001A, 2147483674U, -2147483622
+  EXP_OPCODE(ExperimentalOps, ReservedE25), // reserved
+  // ReservedE26 = 0x8000001B, 2147483675U, -2147483621
+  EXP_OPCODE(ExperimentalOps, ReservedE26), // reserved
+  // ReservedE27 = 0x8000001C, 2147483676U, -2147483620
+  EXP_OPCODE(ExperimentalOps, ReservedE27), // reserved
+  // ReservedE28 = 0x8000001D, 2147483677U, -2147483619
+  EXP_OPCODE(ExperimentalOps, ReservedE28), // reserved
+  // ReservedE29 = 0x8000001E, 2147483678U, -2147483618
+  EXP_OPCODE(ExperimentalOps, ReservedE29), // reserved
+  // ReservedE30 = 0x8000001F, 2147483679U, -2147483617
+  EXP_OPCODE(ExperimentalOps, ReservedE30), // reserved
+  // ReservedE31 = 0x80000020, 2147483680U, -2147483616
+  EXP_OPCODE(ExperimentalOps, ReservedE31), // reserved
+  // ReservedE32 = 0x80000021, 2147483681U, -2147483615
+  EXP_OPCODE(ExperimentalOps, ReservedE32), // reserved
+  // ReservedE33 = 0x80000022, 2147483682U, -2147483614
+  EXP_OPCODE(ExperimentalOps, ReservedE33), // reserved
 };
 // OPCODE-ENUM:END
+#undef EXP_OPCODE
+
+// Create Core namespace for consistency with other opcode groups
+namespace CoreOps {
+static const OpCodeTableID TableID = OpCodeTableID::CoreOps;
+using OpCode = hlsl::DXIL::OpCode;
+} // namespace CoreOps
 
 // clang-format off
   // Python lines need to be not formatted.
@@ -1138,6 +1395,10 @@ enum class OpCodeClass : unsigned {
   IndexNodeHandle,
   createNodeOutputHandle,
 
+  // Debugging
+  DebugBreak,
+  IsDebuggingEnabled,
+
   // Derivatives
   CalculateLOD,
   Unary,
@@ -1154,6 +1415,7 @@ enum class OpCodeClass : unsigned {
   Dot4AddPacked,
 
   // Dot
+  Dot,
   Dot2,
   Dot3,
   Dot4,
@@ -1186,6 +1448,10 @@ enum class OpCodeClass : unsigned {
   // Graphics shader
   ViewID,
 
+  // Group Wave Ops
+  GetGroupWaveCount,
+  GetGroupWaveIndex,
+
   // Helper Lanes
   IsHelperLane,
 
@@ -1205,8 +1471,10 @@ enum class OpCodeClass : unsigned {
   AllocateRayQuery,
   AllocateRayQuery2,
   RayQuery_Abort,
+  RayQuery_CandidateTriangleObjectPosition,
   RayQuery_CommitNonOpaqueTriangleHit,
   RayQuery_CommitProceduralPrimitiveHit,
+  RayQuery_CommittedTriangleObjectPosition,
   RayQuery_Proceed,
   RayQuery_StateMatrix,
   RayQuery_StateScalar,
@@ -1224,10 +1492,27 @@ enum class OpCodeClass : unsigned {
   CreateHandleForLib,
 
   // Linear Algebra Operations
-  MatVecMul,
-  MatVecMulAdd,
-  OuterProductAccumulate,
-  VectorAccumulate,
+  LinAlgConvert,
+  LinAlgCopyConvertMatrix,
+  LinAlgFillMatrix,
+  LinAlgMatVecMul,
+  LinAlgMatVecMulAdd,
+  LinAlgMatrixAccumulate,
+  LinAlgMatrixAccumulateToDescriptor,
+  LinAlgMatrixAccumulateToMemory,
+  LinAlgMatrixGetCoordinate,
+  LinAlgMatrixGetElement,
+  LinAlgMatrixLength,
+  LinAlgMatrixLoadFromDescriptor,
+  LinAlgMatrixLoadFromMemory,
+  LinAlgMatrixMultiply,
+  LinAlgMatrixMultiplyAccumulate,
+  LinAlgMatrixOuterProduct,
+  LinAlgMatrixQueryAccumulatorLayout,
+  LinAlgMatrixSetElement,
+  LinAlgMatrixStoreToDescriptor,
+  LinAlgMatrixStoreToMemory,
+  LinAlgVectorAccumulateToDescriptor,
 
   // Mesh shader instructions
   EmitIndices,
@@ -1235,6 +1520,9 @@ enum class OpCodeClass : unsigned {
   SetMeshOutputCounts,
   StorePrimitiveOutput,
   StoreVertexOutput,
+
+  // No-op
+  Nop,
 
   // Other
   CycleCounterLegacy,
@@ -1280,6 +1568,9 @@ enum class OpCodeClass : unsigned {
   RayTCurrent,
   RayTMin,
 
+  // Raytracing System Values
+  TriangleObjectPosition,
+
   // Raytracing hit uint System Values
   HitKind,
 
@@ -1292,6 +1583,7 @@ enum class OpCodeClass : unsigned {
   PrimitiveIndex,
 
   // Raytracing uint System Values
+  ClusterID,
   RayFlags,
 
   // Resources - gather
@@ -1347,6 +1639,7 @@ enum class OpCodeClass : unsigned {
   HitObject_StateScalar,
   HitObject_StateVector,
   HitObject_TraceRay,
+  HitObject_TriangleObjectPosition,
   MaybeReorderThread,
 
   // Synchronization
@@ -1377,6 +1670,9 @@ enum class OpCodeClass : unsigned {
   // Unpacking intrinsics
   Unpack4x8,
 
+  // Vector reduce to scalar
+  VectorReduce,
+
   // Wave
   WaveActiveAllEqual,
   WaveActiveBallot,
@@ -1403,17 +1699,7 @@ enum class OpCodeClass : unsigned {
   NodeOutputIsValid,
   OutputComplete,
 
-  NumOpClasses_Dxil_1_0 = 93,
-  NumOpClasses_Dxil_1_1 = 95,
-  NumOpClasses_Dxil_1_2 = 97,
-  NumOpClasses_Dxil_1_3 = 118,
-  NumOpClasses_Dxil_1_4 = 120,
-  NumOpClasses_Dxil_1_5 = 143,
-  NumOpClasses_Dxil_1_6 = 149,
-  NumOpClasses_Dxil_1_7 = 153,
-  NumOpClasses_Dxil_1_8 = 174,
-
-  NumOpClasses = 194 // exclusive last value of enumeration
+  NumOpClasses = 223, // exclusive last value of enumeration
 };
 // OPCODECLASS-ENUM:END
 
@@ -1592,29 +1878,6 @@ const unsigned kHitObjectMakeMiss_NumOp = 11;
 const unsigned kHitObjectTraceRay_RayDescOpIdx = 7;
 const unsigned kHitObjectTraceRay_PayloadOpIdx = 15;
 const unsigned kHitObjectTraceRay_NumOp = 16;
-
-// MatVec Ops
-const unsigned kMatVecMulInputVectorIdx = 1;
-const unsigned kMatVecMulIsInputUnsignedIdx = 2;
-const unsigned kMatVecMulInputInterpretationIdx = 3;
-const unsigned kMatVecMulMatrixBufferIdx = 4;
-const unsigned kMatVecMulMatrixOffsetIdx = 5;
-const unsigned kMatVecMulMatrixInterpretationIdx = 6;
-const unsigned kMatVecMulMatrixMIdx = 7;
-const unsigned kMatVecMulMatrixKIdx = 8;
-const unsigned kMatVecMulMatrixLayoutIdx = 9;
-const unsigned kMatVecMulMatrixTransposeIdx = 10;
-const unsigned kMatVecMulMatrixStrideIdx = 11;
-const unsigned kMatVecMulIsOutputUnsignedIdx = 12;
-
-// MatVecAdd
-const unsigned kMatVecMulAddBiasInterpretation = 14;
-const unsigned kMatVecMulAddIsOutputUnsignedIdx = 15;
-
-// Outer Product Accumulate
-const unsigned kOuterProdAccMatrixInterpretation = 5;
-const unsigned kOuterProdAccMatrixLayout = 6;
-const unsigned kOuterProdAccMatrixStride = 7;
 
 // TODO: add operand index for all the OpCodeClass.
 } // namespace OperandIndex
@@ -2057,12 +2320,15 @@ const uint64_t ShaderFeatureInfo_ExtendedCommandInfo = 0x100000000;
 // Experimental SM 6.9+ - Reserved, not yet supported.
 const uint64_t ShaderFeatureInfo_Reserved = 0x8000000;
 
+// SM 6.10+
+const uint64_t ShaderFeatureInfo_LinearAlgebra = 0x200000000;
+
 // Maximum count without rolling over into another 64-bit field is 40,
 // so the last flag we can use for a feature requirement is: 0x8000000000
 // This is because of the following set of flags, considered optional
 // and ignored by the runtime if not recognized:
 // D3D11_OPTIONAL_FEATURE_FLAGS 0x7FFFFF0000000000
-const unsigned ShaderFeatureInfoCount = 33;
+const unsigned ShaderFeatureInfoCount = 34;
 static_assert(ShaderFeatureInfoCount <= 40,
               "ShaderFeatureInfo flags must fit within the first 40 bits; "
               "after that we need to expand the FeatureInfo blob part and "
@@ -2182,17 +2448,11 @@ extern const char *kDxBreakFuncName;
 extern const char *kDxBreakCondName;
 extern const char *kDxBreakMDName;
 extern const char *kDxIsHelperGlobalName;
+extern const char *kDxLinAlgMatrixTypePrefix;
 
 extern const char *kHostLayoutTypePrefix;
 
 extern const char *kWaveOpsIncludeHelperLanesString;
-
-enum class LinalgMatrixLayout : uint32_t {
-  RowMajor = 0,
-  ColumnMajor = 1,
-  MulOptimal = 2,
-  OuterProductOptimal = 3,
-};
 
 } // namespace DXIL
 

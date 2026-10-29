@@ -1,17 +1,13 @@
 #ifndef TABLE_PARAMETER_HANDLER_H
 #define TABLE_PARAMETER_HANDLER_H
 
-#include <Verify.h>
-#include <WexString.h>
-#include <WexTestClass.h>
-#include <memory>
-#include <string>
-#include <vector>
-#include <wchar.h>
-#include <windows.h> // For LPCWSTR
-
-#include "dxc/Support/Global.h" // For DXASSERT_ARGS
-#include "dxc/Test/HlslTestUtils.h"
+#include <windows.h>
+#ifdef _HLK_CONF
+#include "DxilConfTestUtils.h"
+#else
+#include "HlslTestUtils.h"
+#include "dxc/Support/Global.h"
+#endif
 
 // Parameter representation for taef data-driven tests
 struct TableParameter {
@@ -79,8 +75,7 @@ public:
   template <class T1> std::vector<T1> *GetDataArray(LPCWSTR name);
 };
 
-// Static helpers
-static bool IsHexString(PCWSTR str, uint16_t *value) {
+inline bool IsHexString(PCWSTR str, uint16_t *value) {
   std::wstring wString(str);
   wString.erase(std::remove(wString.begin(), wString.end(), L' '),
                 wString.end());
@@ -92,7 +87,7 @@ static bool IsHexString(PCWSTR str, uint16_t *value) {
   return false;
 }
 
-static HRESULT ParseDataToFloat(PCWSTR str, float &value) {
+inline HRESULT ParseDataToFloat(PCWSTR str, float &value) {
   std::wstring wString(str);
   wString.erase(std::remove(wString.begin(), wString.end(), L' '),
                 wString.end());
@@ -131,7 +126,7 @@ static HRESULT ParseDataToFloat(PCWSTR str, float &value) {
   return S_OK;
 }
 
-static HRESULT ParseDataToUint(PCWSTR str, unsigned int &value) {
+inline HRESULT ParseDataToUint(PCWSTR str, unsigned int &value) {
   std::wstring wString(str);
   wString.erase(std::remove(wString.begin(), wString.end(), L' '),
                 wString.end());
@@ -151,7 +146,7 @@ static HRESULT ParseDataToUint(PCWSTR str, unsigned int &value) {
   return S_OK;
 }
 
-static HRESULT ParseDataToVectorFloat(PCWSTR str, float *ptr, size_t count) {
+inline HRESULT ParseDataToVectorFloat(PCWSTR str, float *ptr, size_t count) {
   std::wstring wstr(str);
   size_t curPosition = 0;
   // parse a string of dot product separated by commas
@@ -167,7 +162,7 @@ static HRESULT ParseDataToVectorFloat(PCWSTR str, float *ptr, size_t count) {
   return S_OK;
 }
 
-static HRESULT ParseDataToVectorHalf(PCWSTR str, uint16_t *ptr, size_t count) {
+inline HRESULT ParseDataToVectorHalf(PCWSTR str, uint16_t *ptr, size_t count) {
   std::wstring wstr(str);
   size_t curPosition = 0;
   // parse a string of dot product separated by commas
@@ -185,7 +180,7 @@ static HRESULT ParseDataToVectorHalf(PCWSTR str, uint16_t *ptr, size_t count) {
   return S_OK;
 }
 
-static HRESULT ParseDataToVectorUint(PCWSTR str, unsigned int *ptr,
+inline HRESULT ParseDataToVectorUint(PCWSTR str, unsigned int *ptr,
                                      size_t count) {
   std::wstring wstr(str);
   size_t curPosition = 0;

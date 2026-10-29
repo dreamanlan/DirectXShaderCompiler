@@ -13,6 +13,7 @@
 #include "dxc/DXIL/DxilConstants.h"
 #include "dxc/DXIL/DxilInstructions.h"
 #include "dxc/DXIL/DxilModule.h"
+#include "dxc/DXIL/DxilUtil.h"
 #include "dxc/Support/Global.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -39,7 +40,7 @@ import hctdb_instrhelp
 </py> */
 /* <py::lines('OPCODE-OLOADS')>hctdb_instrhelp.get_oloads_props()</py>*/
 // OPCODE-OLOADS:BEGIN
-const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
+static const OP::OpCodeProperty CoreOps_OpCodeProps[] = {
     // Temporary, indexable, input, output registers
     {OC::TempRegLoad,
      "TempRegLoad",
@@ -477,16 +478,16 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "tertiary",
      Attribute::ReadNone,
      1,
-     {{0xc0}},
-     {{0x0}}}, // Overloads: il
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
     {OC::Ibfe,
      "Ibfe",
      OCC::Tertiary,
      "tertiary",
      Attribute::ReadNone,
      1,
-     {{0xc0}},
-     {{0x0}}}, // Overloads: il
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
 
     // Tertiary uint
     {OC::Ubfe,
@@ -495,8 +496,8 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "tertiary",
      Attribute::ReadNone,
      1,
-     {{0xc0}},
-     {{0x0}}}, // Overloads: il
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
 
     // Quaternary
     {OC::Bfi,
@@ -1041,8 +1042,8 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "waveActiveAllEqual",
      Attribute::None,
      1,
-     {{0xff}},
-     {{0x0}}}, // Overloads: hfd18wil
+     {{0x4ff}},
+     {{0xff}}}, // Overloads: hfd18wil<hfd18wil
     {OC::WaveActiveBallot,
      "WaveActiveBallot",
      OCC::WaveActiveBallot,
@@ -1057,40 +1058,40 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "waveReadLaneAt",
      Attribute::None,
      1,
-     {{0xff}},
-     {{0x0}}}, // Overloads: hfd18wil
+     {{0x4ff}},
+     {{0xff}}}, // Overloads: hfd18wil<hfd18wil
     {OC::WaveReadLaneFirst,
      "WaveReadLaneFirst",
      OCC::WaveReadLaneFirst,
      "waveReadLaneFirst",
      Attribute::None,
      1,
-     {{0xff}},
-     {{0x0}}}, // Overloads: hfd18wil
+     {{0x4ff}},
+     {{0xff}}}, // Overloads: hfd18wil<hfd18wil
     {OC::WaveActiveOp,
      "WaveActiveOp",
      OCC::WaveActiveOp,
      "waveActiveOp",
      Attribute::None,
      1,
-     {{0xff}},
-     {{0x0}}}, // Overloads: hfd18wil
+     {{0x4ff}},
+     {{0xff}}}, // Overloads: hfd18wil<hfd18wil
     {OC::WaveActiveBit,
      "WaveActiveBit",
      OCC::WaveActiveBit,
      "waveActiveBit",
      Attribute::None,
      1,
-     {{0xf0}},
-     {{0x0}}}, // Overloads: 8wil
+     {{0x4f0}},
+     {{0xf0}}}, // Overloads: 8wil<8wil
     {OC::WavePrefixOp,
      "WavePrefixOp",
      OCC::WavePrefixOp,
      "wavePrefixOp",
      Attribute::None,
      1,
-     {{0xf7}},
-     {{0x0}}}, // Overloads: hfd8wil
+     {{0x4f7}},
+     {{0xf7}}}, // Overloads: hfd8wil<hfd8wil
 
     // Quad Wave Ops
     {OC::QuadReadLaneAt,
@@ -1099,16 +1100,16 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "quadReadLaneAt",
      Attribute::None,
      1,
-     {{0xff}},
-     {{0x0}}}, // Overloads: hfd18wil
+     {{0x4ff}},
+     {{0xff}}}, // Overloads: hfd18wil<hfd18wil
     {OC::QuadOp,
      "QuadOp",
      OCC::QuadOp,
      "quadOp",
      Attribute::None,
      1,
-     {{0xf7}},
-     {{0x0}}}, // Overloads: hfd8wil
+     {{0x4f7}},
+     {{0xf7}}}, // Overloads: hfd8wil<hfd8wil
 
     // Bitcasts with different sizes
     {OC::BitcastI16toF16,
@@ -1485,16 +1486,16 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      "waveMatch",
      Attribute::None,
      1,
-     {{0xf7}},
-     {{0x0}}}, // Overloads: hfd8wil
+     {{0x4f7}},
+     {{0xf7}}}, // Overloads: hfd8wil<hfd8wil
     {OC::WaveMultiPrefixOp,
      "WaveMultiPrefixOp",
      OCC::WaveMultiPrefixOp,
      "waveMultiPrefixOp",
      Attribute::None,
      1,
-     {{0xf7}},
-     {{0x0}}}, // Overloads: hfd8wil
+     {{0x4f7}},
+     {{0xf7}}}, // Overloads: hfd8wil<hfd8wil
     {OC::WaveMultiPrefixBitCount,
      "WaveMultiPrefixBitCount",
      OCC::WaveMultiPrefixBitCount,
@@ -2653,39 +2654,646 @@ const OP::OpCodeProperty OP::m_OpCodeProps[(unsigned)OP::OpCode::NumOpCodes] = {
      {{0x4e7}},
      {{0xe7}}}, // Overloads: hfwidl<hfwidl
 
+    {OC::ReservedD0,
+     "ReservedD0",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedD1,
+     "ReservedD1",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedD2,
+     "ReservedD2",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedD3,
+     "ReservedD3",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+
+    // Vector reduce to scalar
+    {OC::VectorReduceAnd,
+     "VectorReduceAnd",
+     OCC::VectorReduce,
+     "vectorReduce",
+     Attribute::ReadNone,
+     1,
+     {{0x400}},
+     {{0xf8}}}, // Overloads: <18wil
+    {OC::VectorReduceOr,
+     "VectorReduceOr",
+     OCC::VectorReduce,
+     "vectorReduce",
+     Attribute::ReadNone,
+     1,
+     {{0x400}},
+     {{0xf8}}}, // Overloads: <18wil
+
+    // Dot
+    {OC::FDot,
+     "FDot",
+     OCC::Dot,
+     "dot",
+     Attribute::ReadNone,
+     1,
+     {{0x400}},
+     {{0x3}}}, // Overloads: <hf
+
+    // Group Wave Ops
+    {OC::GetGroupWaveIndex,
+     "GetGroupWaveIndex",
+     OCC::GetGroupWaveIndex,
+     "getGroupWaveIndex",
+     Attribute::ReadNone,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::GetGroupWaveCount,
+     "GetGroupWaveCount",
+     OCC::GetGroupWaveCount,
+     "getGroupWaveCount",
+     Attribute::ReadNone,
+     0,
+     {},
+     {}}, // Overloads: v
+
+    // Raytracing uint System Values
+    {OC::ClusterID,
+     "ClusterID",
+     OCC::ClusterID,
+     "clusterID",
+     Attribute::ReadNone,
+     0,
+     {},
+     {}}, // Overloads: v
+
+    // Inline Ray Query
+    {OC::RayQuery_CandidateClusterID,
+     "RayQuery_CandidateClusterID",
+     OCC::RayQuery_StateScalar,
+     "rayQuery_StateScalar",
+     Attribute::ReadOnly,
+     1,
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
+    {OC::RayQuery_CommittedClusterID,
+     "RayQuery_CommittedClusterID",
+     OCC::RayQuery_StateScalar,
+     "rayQuery_StateScalar",
+     Attribute::ReadOnly,
+     1,
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
+
+    // Shader Execution Reordering
+    {OC::HitObject_ClusterID,
+     "HitObject_ClusterID",
+     OCC::HitObject_StateScalar,
+     "hitObject_StateScalar",
+     Attribute::ReadNone,
+     1,
+     {{0x40}},
+     {{0x0}}}, // Overloads: i
+
+    // Raytracing System Values
+    {OC::TriangleObjectPosition,
+     "TriangleObjectPosition",
+     OCC::TriangleObjectPosition,
+     "triangleObjectPosition",
+     Attribute::ReadNone,
+     1,
+     {{0x2}},
+     {{0x0}}}, // Overloads: f
+
+    // Inline Ray Query
+    {OC::RayQuery_CandidateTriangleObjectPosition,
+     "RayQuery_CandidateTriangleObjectPosition",
+     OCC::RayQuery_CandidateTriangleObjectPosition,
+     "rayQuery_CandidateTriangleObjectPosition",
+     Attribute::ReadOnly,
+     1,
+     {{0x2}},
+     {{0x0}}}, // Overloads: f
+    {OC::RayQuery_CommittedTriangleObjectPosition,
+     "RayQuery_CommittedTriangleObjectPosition",
+     OCC::RayQuery_CommittedTriangleObjectPosition,
+     "rayQuery_CommittedTriangleObjectPosition",
+     Attribute::ReadOnly,
+     1,
+     {{0x2}},
+     {{0x0}}}, // Overloads: f
+
+    // Shader Execution Reordering
+    {OC::HitObject_TriangleObjectPosition,
+     "HitObject_TriangleObjectPosition",
+     OCC::HitObject_TriangleObjectPosition,
+     "hitObject_TriangleObjectPosition",
+     Attribute::ReadNone,
+     1,
+     {{0x2}},
+     {{0x0}}}, // Overloads: f
+
     // Linear Algebra Operations
-    {OC::MatVecMul,
-     "MatVecMul",
-     OCC::MatVecMul,
-     "matVecMul",
-     Attribute::ReadOnly,
+    {OC::LinAlgMatrixMultiplyAccumulate,
+     "LinAlgMatrixMultiplyAccumulate",
+     OCC::LinAlgMatrixMultiplyAccumulate,
+     "linAlgMatrixMultiplyAccumulate",
+     Attribute::None,
+     4,
+     {{0x200}, {0x200}, {0x200}, {0x200}},
+     {{0x0}, {0x0}, {0x0}, {0x0}}}, // Overloads: o,o,o,o
+    {OC::LinAlgFillMatrix,
+     "LinAlgFillMatrix",
+     OCC::LinAlgFillMatrix,
+     "linAlgFillMatrix",
+     Attribute::None,
      2,
-     {{0x400}, {0x400}},
-     {{0x63}, {0x63}}}, // Overloads: <hfwi,<hfwi
-    {OC::MatVecMulAdd,
-     "MatVecMulAdd",
-     OCC::MatVecMulAdd,
-     "matVecMulAdd",
-     Attribute::ReadOnly,
+     {{0x200}, {0xe7}},
+     {{0x0}, {0x0}}}, // Overloads: o,hfdwil
+    {OC::LinAlgCopyConvertMatrix,
+     "LinAlgCopyConvertMatrix",
+     OCC::LinAlgCopyConvertMatrix,
+     "linAlgCopyConvertMatrix",
+     Attribute::None,
      2,
-     {{0x400}, {0x400}},
-     {{0x63}, {0x63}}}, // Overloads: <hfwi,<hfwi
-    {OC::OuterProductAccumulate,
-     "OuterProductAccumulate",
-     OCC::OuterProductAccumulate,
-     "outerProductAccumulate",
+     {{0x200}, {0x200}},
+     {{0x0}, {0x0}}}, // Overloads: o,o
+    {OC::LinAlgMatrixLoadFromDescriptor,
+     "LinAlgMatrixLoadFromDescriptor",
+     OCC::LinAlgMatrixLoadFromDescriptor,
+     "linAlgMatrixLoadFromDescriptor",
+     Attribute::None,
+     1,
+     {{0x200}},
+     {{0x0}}}, // Overloads: o
+    {OC::LinAlgMatrixLoadFromMemory,
+     "LinAlgMatrixLoadFromMemory",
+     OCC::LinAlgMatrixLoadFromMemory,
+     "linAlgMatrixLoadFromMemory",
+     Attribute::None,
+     2,
+     {{0x200}, {0x4e7}},
+     {{0x0}, {0xe7}}}, // Overloads: o,hfdwil<hfdwil
+    {OC::LinAlgMatrixLength,
+     "LinAlgMatrixLength",
+     OCC::LinAlgMatrixLength,
+     "linAlgMatrixLength",
+     Attribute::None,
+     1,
+     {{0x200}},
+     {{0x0}}}, // Overloads: o
+    {OC::LinAlgMatrixGetCoordinate,
+     "LinAlgMatrixGetCoordinate",
+     OCC::LinAlgMatrixGetCoordinate,
+     "linAlgMatrixGetCoordinate",
+     Attribute::None,
+     1,
+     {{0x200}},
+     {{0x0}}}, // Overloads: o
+    {OC::LinAlgMatrixGetElement,
+     "LinAlgMatrixGetElement",
+     OCC::LinAlgMatrixGetElement,
+     "linAlgMatrixGetElement",
+     Attribute::None,
+     2,
+     {{0xe7}, {0x200}},
+     {{0x0}, {0x0}}}, // Overloads: hfdwil,o
+    {OC::LinAlgMatrixSetElement,
+     "LinAlgMatrixSetElement",
+     OCC::LinAlgMatrixSetElement,
+     "linAlgMatrixSetElement",
+     Attribute::None,
+     3,
+     {{0x200}, {0x200}, {0xe7}},
+     {{0x0}, {0x0}, {0x0}}}, // Overloads: o,o,hfdwil
+    {OC::LinAlgMatrixStoreToDescriptor,
+     "LinAlgMatrixStoreToDescriptor",
+     OCC::LinAlgMatrixStoreToDescriptor,
+     "linAlgMatrixStoreToDescriptor",
+     Attribute::None,
+     1,
+     {{0x200}},
+     {{0x0}}}, // Overloads: o
+    {OC::LinAlgMatrixStoreToMemory,
+     "LinAlgMatrixStoreToMemory",
+     OCC::LinAlgMatrixStoreToMemory,
+     "linAlgMatrixStoreToMemory",
+     Attribute::None,
+     2,
+     {{0x200}, {0x4e7}},
+     {{0x0}, {0xe7}}}, // Overloads: o,hfdwil<hfdwil
+    {OC::LinAlgMatrixQueryAccumulatorLayout,
+     "LinAlgMatrixQueryAccumulatorLayout",
+     OCC::LinAlgMatrixQueryAccumulatorLayout,
+     "linAlgMatrixQueryAccumulatorLayout",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::LinAlgMatrixMultiply,
+     "LinAlgMatrixMultiply",
+     OCC::LinAlgMatrixMultiply,
+     "linAlgMatrixMultiply",
+     Attribute::None,
+     3,
+     {{0x200}, {0x200}, {0x200}},
+     {{0x0}, {0x0}, {0x0}}}, // Overloads: o,o,o
+    {OC::LinAlgMatrixAccumulate,
+     "LinAlgMatrixAccumulate",
+     OCC::LinAlgMatrixAccumulate,
+     "linAlgMatrixAccumulate",
+     Attribute::None,
+     3,
+     {{0x200}, {0x200}, {0x200}},
+     {{0x0}, {0x0}, {0x0}}}, // Overloads: o,o,o
+    {OC::LinAlgMatVecMul,
+     "LinAlgMatVecMul",
+     OCC::LinAlgMatVecMul,
+     "linAlgMatVecMul",
+     Attribute::None,
+     3,
+     {{0x400}, {0x200}, {0x400}},
+     {{0xe7}, {0x0}, {0xe7}}}, // Overloads: <hfdwil,o,<hfdwil
+    {OC::LinAlgMatVecMulAdd,
+     "LinAlgMatVecMulAdd",
+     OCC::LinAlgMatVecMulAdd,
+     "linAlgMatVecMulAdd",
+     Attribute::None,
+     4,
+     {{0x400}, {0x200}, {0x400}, {0x400}},
+     {{0xe7}, {0x0}, {0xe7}, {0xe7}}}, // Overloads: <hfdwil,o,<hfdwil,<hfdwil
+    {OC::LinAlgMatrixAccumulateToDescriptor,
+     "LinAlgMatrixAccumulateToDescriptor",
+     OCC::LinAlgMatrixAccumulateToDescriptor,
+     "linAlgMatrixAccumulateToDescriptor",
+     Attribute::None,
+     1,
+     {{0x200}},
+     {{0x0}}}, // Overloads: o
+    {OC::LinAlgMatrixAccumulateToMemory,
+     "LinAlgMatrixAccumulateToMemory",
+     OCC::LinAlgMatrixAccumulateToMemory,
+     "linAlgMatrixAccumulateToMemory",
+     Attribute::None,
+     2,
+     {{0x200}, {0x4e7}},
+     {{0x0}, {0xe7}}}, // Overloads: o,hfdwil<hfdwil
+    {OC::LinAlgMatrixOuterProduct,
+     "LinAlgMatrixOuterProduct",
+     OCC::LinAlgMatrixOuterProduct,
+     "linAlgMatrixOuterProduct",
+     Attribute::None,
+     3,
+     {{0x200}, {0x400}, {0x400}},
+     {{0x0}, {0xe7}, {0xe7}}}, // Overloads: o,<hfdwil,<hfdwil
+    {OC::LinAlgConvert,
+     "LinAlgConvert",
+     OCC::LinAlgConvert,
+     "linAlgConvert",
      Attribute::None,
      2,
      {{0x400}, {0x400}},
-     {{0x63}, {0x63}}}, // Overloads: <hfwi,<hfwi
-    {OC::VectorAccumulate,
-     "VectorAccumulate",
-     OCC::VectorAccumulate,
-     "vectorAccumulate",
+     {{0xe7}, {0xe7}}}, // Overloads: <hfdwil,<hfdwil
+    {OC::LinAlgVectorAccumulateToDescriptor,
+     "LinAlgVectorAccumulateToDescriptor",
+     OCC::LinAlgVectorAccumulateToDescriptor,
+     "linAlgVectorAccumulateToDescriptor",
      Attribute::None,
      1,
      {{0x400}},
-     {{0x63}}}, // Overloads: <hfwi
+     {{0xe7}}}, // Overloads: <hfdwil
+
+    // Debugging
+    {OC::DebugBreak,
+     "DebugBreak",
+     OCC::DebugBreak,
+     "debugBreak",
+     Attribute::NoDuplicate,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::IsDebuggingEnabled,
+     "IsDebuggingEnabled",
+     OCC::IsDebuggingEnabled,
+     "isDebuggingEnabled",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+};
+static_assert(_countof(CoreOps_OpCodeProps) ==
+                  (size_t)DXIL::CoreOps::OpCode::NumOpCodes,
+              "mismatch in opcode count for CoreOps OpCodeProps");
+static const OP::OpCodeProperty ExperimentalOps_OpCodeProps[] = {
+    // No-op
+    {OC::ExperimentalNop,
+     "ExperimentalNop",
+     OCC::Nop,
+     "nop",
+     Attribute::ReadNone,
+     0,
+     {},
+     {}}, // Overloads: v
+
+    {OC::ReservedE0,
+     "ReservedE0",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE1,
+     "ReservedE1",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE2,
+     "ReservedE2",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE3,
+     "ReservedE3",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE4,
+     "ReservedE4",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE5,
+     "ReservedE5",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE6,
+     "ReservedE6",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE7,
+     "ReservedE7",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE8,
+     "ReservedE8",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE9,
+     "ReservedE9",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE10,
+     "ReservedE10",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE11,
+     "ReservedE11",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE12,
+     "ReservedE12",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE13,
+     "ReservedE13",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE14,
+     "ReservedE14",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE15,
+     "ReservedE15",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE16,
+     "ReservedE16",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE17,
+     "ReservedE17",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE18,
+     "ReservedE18",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE19,
+     "ReservedE19",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE20,
+     "ReservedE20",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE21,
+     "ReservedE21",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE22,
+     "ReservedE22",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE23,
+     "ReservedE23",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE24,
+     "ReservedE24",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE25,
+     "ReservedE25",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE26,
+     "ReservedE26",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE27,
+     "ReservedE27",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE28,
+     "ReservedE28",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE29,
+     "ReservedE29",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE30,
+     "ReservedE30",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE31,
+     "ReservedE31",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE32,
+     "ReservedE32",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+    {OC::ReservedE33,
+     "ReservedE33",
+     OCC::Reserved,
+     "reserved",
+     Attribute::None,
+     0,
+     {},
+     {}}, // Overloads: v
+};
+static_assert(_countof(ExperimentalOps_OpCodeProps) ==
+                  (size_t)DXIL::ExperimentalOps::OpCode::NumOpCodes,
+              "mismatch in opcode count for ExperimentalOps OpCodeProps");
+
+// Table of DXIL OpCode Property tables
+OP::OpCodeTable OP::g_OpCodeTables[DXIL::NumOpCodeTables] = {
+    {OP::OpCodeTableID::CoreOps, CoreOps_OpCodeProps,
+     (unsigned)DXIL::CoreOps::OpCode::NumOpCodes},
+    {OP::OpCodeTableID::ExperimentalOps, ExperimentalOps_OpCodeProps,
+     (unsigned)DXIL::ExperimentalOps::OpCode::NumOpCodes},
 };
 // OPCODE-OLOADS:END
 
@@ -2695,6 +3303,7 @@ const char *OP::m_OverloadTypeName[TS_BasicCount] = {
 const char *OP::m_NamePrefix = "dx.op.";
 const char *OP::m_TypePrefix = "dx.types.";
 const char *OP::m_MatrixTypePrefix = "class.matrix."; // Allowed in library
+const char *OP::m_LinAlgNamePrefix = "dx.op.linAlg";
 
 // Keep sync with DXIL::AtomicBinOpCode
 static const char *AtomicBinOpCodeName[] = {
@@ -2702,6 +3311,64 @@ static const char *AtomicBinOpCodeName[] = {
     "AtomicIMax",   "AtomicUMin", "AtomicUMax", "AtomicExchange",
     "AtomicInvalid" // Must be last.
 };
+
+static unsigned GetOpCodeTableIndex(OP::OpCodeTableID TableID) {
+  static_assert(DXIL::NumOpCodeTables == 2,
+                "Otherwise, update GetOpCodeTableIndex to be generated.");
+  switch (TableID) {
+  case OP::OpCodeTableID::CoreOps:
+    return 0;
+  case OP::OpCodeTableID::ExperimentalOps:
+    return 1;
+  default:
+    return UINT_MAX;
+  }
+}
+
+// Safe opcode decoder
+bool OP::DecodeOpCode(unsigned EncodedOpCode, OP::OpCodeTableID &TableID,
+                      unsigned &OpIndex, unsigned *OptTableIndex) {
+  if (EncodedOpCode == (unsigned)OP::OpCode::Invalid)
+    return false;
+  OP::OpCodeTableID TID = (OP::OpCodeTableID)(EncodedOpCode >> 16);
+  unsigned TableIndex = GetOpCodeTableIndex(TID);
+  if (TableIndex >= DXIL::NumOpCodeTables)
+    return false;
+  unsigned Op = (EncodedOpCode & 0xFFFF);
+  if (Op >= OP::g_OpCodeTables[TableIndex].Count)
+    return false;
+  TableID = (OP::OpCodeTableID)TID;
+  OpIndex = Op;
+  if (OptTableIndex)
+    *OptTableIndex = TableIndex;
+  return true;
+}
+bool OP::DecodeOpCode(OpCode EncodedOpCode, OP::OpCodeTableID &TableID,
+                      unsigned &OpIndex, unsigned *OptTableIndex) {
+  return DecodeOpCode((unsigned)EncodedOpCode, TableID, OpIndex, OptTableIndex);
+}
+bool OP::IsValidOpCode(unsigned EncodedOpCode) {
+  if (EncodedOpCode == (unsigned)OP::OpCode::Invalid)
+    return false;
+  OP::OpCodeTableID TID;
+  unsigned OpIndex;
+  return DecodeOpCode(EncodedOpCode, TID, OpIndex);
+}
+bool OP::IsValidOpCode(OP::OpCode EncodedOpCode) {
+  return IsValidOpCode((unsigned)EncodedOpCode);
+}
+const OP::OpCodeProperty &OP::GetOpCodeProps(unsigned OriginalOpCode) {
+  OP::OpCodeTableID TID = OP::OpCodeTableID::CoreOps;
+  unsigned Op = 0;
+  unsigned TableIndex = 0;
+  bool Success = DecodeOpCode(OriginalOpCode, TID, Op, &TableIndex);
+  DXASSERT_LOCALVAR(Success, Success, "otherwise invalid OpCode");
+  const OP::OpCodeTable &Table = OP::g_OpCodeTables[TableIndex];
+  return Table.Table[Op];
+}
+const OP::OpCodeProperty &OP::GetOpCodeProps(OP::OpCode OriginalOpCode) {
+  return GetOpCodeProps((unsigned)OriginalOpCode);
+}
 
 unsigned OP::GetTypeSlot(Type *pType) {
   Type::TypeID T = pType->getTypeID();
@@ -2762,23 +3429,33 @@ const char *OP::GetOverloadTypeName(unsigned TypeSlot) {
 StringRef OP::GetTypeName(Type *Ty, SmallVectorImpl<char> &Storage) {
   DXASSERT(!Ty->isVoidTy(), "must not pass void type here");
   unsigned TypeSlot = OP::GetTypeSlot(Ty);
+
   if (TypeSlot < TS_BasicCount) {
     return GetOverloadTypeName(TypeSlot);
-  } else if (TypeSlot == TS_UDT) {
+  }
+
+  switch (TypeSlot) {
+  case TS_UDT: {
     if (Ty->isPointerTy())
       Ty = Ty->getPointerElementType();
     StructType *ST = cast<StructType>(Ty);
     return ST->getStructName();
-  } else if (TypeSlot == TS_Object) {
+  }
+  case TS_Object: {
     StructType *ST = cast<StructType>(Ty);
+    if (dxilutil::IsHLSLLinAlgMatrixType(Ty))
+      return (Twine("m") + Twine(dxilutil::GetHLSLLinAlgMatrixTypeMangling(ST)))
+          .toStringRef(Storage);
     return ST->getStructName();
-  } else if (TypeSlot == TS_Vector) {
+  }
+  case TS_Vector: {
     VectorType *VecTy = cast<VectorType>(Ty);
     return (Twine("v") + Twine(VecTy->getNumElements()) +
             Twine(
                 GetOverloadTypeName(OP::GetTypeSlot(VecTy->getElementType()))))
         .toStringRef(Storage);
-  } else if (TypeSlot == TS_Extended) {
+  }
+  case TS_Extended: {
     DXASSERT(isa<StructType>(Ty),
              "otherwise, extended overload type not wrapped in struct type.");
     StructType *ST = cast<StructType>(Ty);
@@ -2793,11 +3470,14 @@ StringRef OP::GetTypeName(Type *Ty, SmallVectorImpl<char> &Storage) {
       OS << GetTypeName(ST->getElementType(I), TempStr);
     }
     return OS.str();
-  } else {
-    raw_svector_ostream OS(Storage);
-    Ty->print(OS);
-    return OS.str();
   }
+  default:
+    break;
+  }
+
+  raw_svector_ostream OS(Storage);
+  Ty->print(OS);
+  return OS.str();
 }
 
 StringRef OP::ConstructOverloadName(Type *Ty, DXIL::OpCode opCode,
@@ -2814,7 +3494,7 @@ StringRef OP::ConstructOverloadName(Type *Ty, DXIL::OpCode opCode,
 }
 
 const char *OP::GetOpCodeName(OpCode opCode) {
-  return m_OpCodeProps[(unsigned)opCode].pOpCodeName;
+  return GetOpCodeProps(opCode).pOpCodeName;
 }
 
 const char *OP::GetAtomicOpName(DXIL::AtomicBinOpCode OpCode) {
@@ -2826,24 +3506,23 @@ const char *OP::GetAtomicOpName(DXIL::AtomicBinOpCode OpCode) {
 }
 
 OP::OpCodeClass OP::GetOpCodeClass(OpCode opCode) {
-  return m_OpCodeProps[(unsigned)opCode].opCodeClass;
+  return GetOpCodeProps(opCode).opCodeClass;
 }
 
 const char *OP::GetOpCodeClassName(OpCode opCode) {
-  return m_OpCodeProps[(unsigned)opCode].pOpCodeClassName;
+  return GetOpCodeProps(opCode).pOpCodeClassName;
 }
 
 llvm::Attribute::AttrKind OP::GetMemAccessAttr(OpCode opCode) {
-  return m_OpCodeProps[(unsigned)opCode].FuncAttr;
+  return GetOpCodeProps(opCode).FuncAttr;
 }
 
 bool OP::IsOverloadLegal(OpCode opCode, Type *pType) {
-  if (static_cast<unsigned>(opCode) >=
-      static_cast<unsigned>(OpCode::NumOpCodes))
-    return false;
   if (!pType)
     return false;
-  auto &OpProps = m_OpCodeProps[static_cast<unsigned>(opCode)];
+  if (!IsValidOpCode(opCode))
+    return false;
+  auto &OpProps = GetOpCodeProps(opCode);
 
   if (OpProps.NumOverloadDims == 0)
     return pType->isVoidTy();
@@ -2876,9 +3555,22 @@ bool OP::IsOverloadLegal(OpCode opCode, Type *pType) {
 }
 
 bool OP::CheckOpCodeTable() {
-  for (unsigned i = 0; i < (unsigned)OpCode::NumOpCodes; i++) {
-    if ((unsigned)m_OpCodeProps[i].opCode != i)
-      return false;
+  for (unsigned TableIndex = 0; TableIndex < DXIL::NumOpCodeTables;
+       TableIndex++) {
+    const OP::OpCodeTable &Table = OP::g_OpCodeTables[TableIndex];
+    for (unsigned OpIndex = 0; OpIndex < Table.Count; OpIndex++) {
+      const OP::OpCodeProperty &Prop = Table.Table[OpIndex];
+      OP::OpCodeTableID DecodedTID;
+      unsigned DecodedOpIndex;
+      unsigned DecodedTableIndex;
+      bool Success = OP::DecodeOpCode(Prop.opCode, DecodedTID, DecodedOpIndex,
+                                      &DecodedTableIndex);
+      if (!Success)
+        return false;
+      if (DecodedTID != Table.ID || DecodedOpIndex != OpIndex ||
+          DecodedTableIndex != TableIndex)
+        return false;
+    }
   }
 
   return true;
@@ -2896,6 +3588,18 @@ bool OP::IsDxilOpFunc(const llvm::Function *F) {
   return IsDxilOpFuncName(F->getName());
 }
 
+bool OP::IsDxilOpLinAlgFuncName(StringRef Name) {
+  return Name.startswith(OP::m_LinAlgNamePrefix);
+}
+
+bool OP::IsDxilOpLinAlgFunc(const llvm::Function *F) {
+  // Test for null to allow IsDxilOpLinAlgFunc(Call.getCalledFunc()) to be
+  // resilient to indirect calls
+  if (F == nullptr || !F->hasName())
+    return false;
+  return IsDxilOpLinAlgFuncName(F->getName());
+}
+
 bool OP::IsDxilOpFuncCallInst(const llvm::Instruction *I) {
   const CallInst *CI = dyn_cast<CallInst>(I);
   if (CI == nullptr)
@@ -2909,14 +3613,19 @@ bool OP::IsDxilOpFuncCallInst(const llvm::Instruction *I, OpCode opcode) {
   return (unsigned)getOpCode(I) == (unsigned)opcode;
 }
 
+OP::OpCode OP::getOpCode(unsigned OpCode) {
+  if (!IsValidOpCode(OpCode))
+    return OP::OpCode::Invalid;
+  return static_cast<OP::OpCode>(OpCode);
+}
 OP::OpCode OP::getOpCode(const llvm::Instruction *I) {
   auto *OpConst = llvm::dyn_cast<llvm::ConstantInt>(I->getOperand(0));
   if (!OpConst)
-    return OpCode::NumOpCodes;
+    return OpCode::Invalid;
   uint64_t OpCodeVal = OpConst->getZExtValue();
-  if (OpCodeVal >= static_cast<uint64_t>(OP::OpCode::NumOpCodes))
-    return OP::OpCode::NumOpCodes;
-  return static_cast<OP::OpCode>(OpCodeVal);
+  if (OpCodeVal >= static_cast<uint64_t>(OP::OpCode::Invalid))
+    return OP::OpCode::Invalid;
+  return getOpCode(static_cast<unsigned>(OpCodeVal));
 }
 
 OP::OpCode OP::GetDxilOpFuncCallInst(const llvm::Instruction *I) {
@@ -2938,9 +3647,10 @@ bool OP::IsDxilOpWave(OpCode C) {
   // WaveReadLaneFirst=118, WaveActiveOp=119, WaveActiveBit=120,
   // WavePrefixOp=121, QuadReadLaneAt=122, QuadOp=123, WaveAllBitCount=135,
   // WavePrefixBitCount=136, WaveMatch=165, WaveMultiPrefixOp=166,
-  // WaveMultiPrefixBitCount=167, QuadVote=222
+  // WaveMultiPrefixBitCount=167, QuadVote=222, GetGroupWaveIndex=312,
+  // GetGroupWaveCount=313
   return (110 <= op && op <= 123) || (135 <= op && op <= 136) ||
-         (165 <= op && op <= 167) || op == 222;
+         (165 <= op && op <= 167) || op == 222 || (312 <= op && op <= 313);
   // OPCODE-WAVE:END
 }
 
@@ -2957,6 +3667,19 @@ bool OP::IsDxilOpGradient(OpCode C) {
   return (60 <= op && op <= 61) || op == 64 || op == 81 ||
          (83 <= op && op <= 86) || (174 <= op && op <= 175) || op == 255;
   // OPCODE-GRADIENT:END
+}
+
+bool OP::IsDxilOpConvergent(OpCode C) {
+  unsigned op = (unsigned)C;
+  // clang-format off
+  // Python lines need to be not formatted.
+  /* <py::lines('OPCODE-CONVERGENT')>hctdb_instrhelp.get_instrs_pred("op", "is_convergent")</py>*/
+  // clang-format on
+  // OPCODE-CONVERGENT:BEGIN
+  // Instructions: DerivCoarseX=83, DerivCoarseY=84, DerivFineX=85,
+  // DerivFineY=86
+  return (83 <= op && op <= 86);
+  // OPCODE-CONVERGENT:END
 }
 
 bool OP::IsDxilOpFeedback(OpCode C) {
@@ -2986,9 +3709,9 @@ bool OP::IsDxilOpBarrier(OpCode C) {
 }
 
 bool OP::IsDxilOpExtendedOverload(OpCode C) {
-  if (C >= OpCode::NumOpCodes)
+  if (!IsValidOpCode(C))
     return false;
-  return m_OpCodeProps[static_cast<unsigned>(C)].NumOverloadDims > 1;
+  return GetOpCodeProps(C).NumOverloadDims > 1;
 }
 
 static unsigned MaskMemoryTypeFlagsIfAllowed(unsigned memoryTypeFlags,
@@ -3474,9 +4197,8 @@ void OP::GetMinShaderModelAndMask(OpCode C, bool bWithTranslation,
     return;
   }
   // Instructions: AllocateRayQuery2=258, RawBufferVectorLoad=303,
-  // RawBufferVectorStore=304, MatVecMul=305, MatVecMulAdd=306,
-  // OuterProductAccumulate=307, VectorAccumulate=308
-  if (op == 258 || (303 <= op && op <= 308)) {
+  // RawBufferVectorStore=304
+  if (op == 258 || (303 <= op && op <= 304)) {
     major = 6;
     minor = 9;
     return;
@@ -3506,6 +4228,63 @@ void OP::GetMinShaderModelAndMask(OpCode C, bool bWithTranslation,
     minor = 9;
     mask =
         SFLAG(Library) | SFLAG(RayGeneration) | SFLAG(ClosestHit) | SFLAG(Miss);
+    return;
+  }
+  // Instructions: RayQuery_CandidateClusterID=315,
+  // RayQuery_CommittedClusterID=316,
+  // RayQuery_CandidateTriangleObjectPosition=319,
+  // RayQuery_CommittedTriangleObjectPosition=320,
+  // LinAlgMatrixLoadFromDescriptor=325, LinAlgMatrixQueryAccumulatorLayout=333,
+  // LinAlgMatVecMul=336, LinAlgMatVecMulAdd=337,
+  // LinAlgMatrixAccumulateToDescriptor=338, LinAlgMatrixOuterProduct=340,
+  // LinAlgConvert=341, LinAlgVectorAccumulateToDescriptor=342, DebugBreak=343,
+  // IsDebuggingEnabled=344
+  if ((315 <= op && op <= 316) || (319 <= op && op <= 320) || op == 325 ||
+      op == 333 || (336 <= op && op <= 338) || (340 <= op && op <= 344)) {
+    major = 6;
+    minor = 10;
+    return;
+  }
+  // Instructions: LinAlgMatrixMultiplyAccumulate=322, LinAlgFillMatrix=323,
+  // LinAlgCopyConvertMatrix=324, LinAlgMatrixLoadFromMemory=326,
+  // LinAlgMatrixLength=327, LinAlgMatrixGetCoordinate=328,
+  // LinAlgMatrixGetElement=329, LinAlgMatrixSetElement=330,
+  // LinAlgMatrixStoreToDescriptor=331, LinAlgMatrixStoreToMemory=332,
+  // LinAlgMatrixMultiply=334, LinAlgMatrixAccumulate=335,
+  // LinAlgMatrixAccumulateToMemory=339
+  if ((322 <= op && op <= 324) || (326 <= op && op <= 332) ||
+      (334 <= op && op <= 335) || op == 339) {
+    major = 6;
+    minor = 10;
+    mask = SFLAG(Compute);
+    return;
+  }
+  // Instructions: GetGroupWaveIndex=312, GetGroupWaveCount=313
+  if ((312 <= op && op <= 313)) {
+    major = 6;
+    minor = 10;
+    mask = SFLAG(Compute) | SFLAG(Mesh) | SFLAG(Amplification);
+    return;
+  }
+  // Instructions: ClusterID=314, TriangleObjectPosition=318
+  if (op == 314 || op == 318) {
+    major = 6;
+    minor = 10;
+    mask = SFLAG(Library) | SFLAG(AnyHit) | SFLAG(ClosestHit);
+    return;
+  }
+  // Instructions: HitObject_ClusterID=317, HitObject_TriangleObjectPosition=321
+  if (op == 317 || op == 321) {
+    major = 6;
+    minor = 10;
+    mask =
+        SFLAG(Library) | SFLAG(RayGeneration) | SFLAG(ClosestHit) | SFLAG(Miss);
+    return;
+  }
+  // Instructions: ExperimentalNop=2147483648
+  if (op == 2147483648) {
+    major = 6;
+    minor = 11;
     return;
   }
   // OPCODE-SMMASK:END
@@ -3611,8 +4390,6 @@ OP::OP(LLVMContext &Ctx, Module *pModule)
   memset(m_pResRetType, 0, sizeof(m_pResRetType));
   memset(m_pCBufferRetType, 0, sizeof(m_pCBufferRetType));
   memset(m_OpCodeClassCache, 0, sizeof(m_OpCodeClassCache));
-  static_assert(_countof(OP::m_OpCodeProps) == (size_t)OP::OpCode::NumOpCodes,
-                "forgot to update OP::m_OpCodeProps");
 
   m_pHandleType = GetOrCreateStructType(m_Ctx, Type::getInt8PtrTy(m_Ctx),
                                         "dx.types.Handle", pModule);
@@ -3622,9 +4399,8 @@ OP::OP(LLVMContext &Ctx, Module *pModule)
                                             "dx.types.NodeHandle", pModule);
   m_pNodeRecordHandleType = GetOrCreateStructType(
       m_Ctx, Type::getInt8PtrTy(m_Ctx), "dx.types.NodeRecordHandle", pModule);
-  m_pResourcePropertiesType = GetOrCreateStructType(
-      m_Ctx, {Type::getInt32Ty(m_Ctx), Type::getInt32Ty(m_Ctx)},
-      "dx.types.ResourceProperties", pModule);
+  m_pResourcePropertiesType =
+      hlsl::resource_helper::GetResourcePropertiesType(*pModule);
   m_pNodePropertiesType = GetOrCreateStructType(
       m_Ctx, {Type::getInt32Ty(m_Ctx), Type::getInt32Ty(m_Ctx)},
       "dx.types.NodeInfo", pModule);
@@ -3716,10 +4492,10 @@ void OP::UpdateCache(OpCodeClass opClass, Type *Ty, llvm::Function *F) {
 }
 
 bool OP::MayHaveNonCanonicalOverload(OpCode OC) {
-  if (OC >= OpCode::NumOpCodes)
+  if (!IsValidOpCode(OC))
     return false;
   const unsigned CheckMask = (1 << TS_UDT) | (1 << TS_Object);
-  auto &OpProps = m_OpCodeProps[static_cast<unsigned>(OC)];
+  auto &OpProps = GetOpCodeProps(OC);
   for (unsigned I = 0; I < OpProps.NumOverloadDims; ++I)
     if ((CheckMask & OpProps.AllowedOverloads[I].SlotMask) != 0)
       return true;
@@ -3727,10 +4503,9 @@ bool OP::MayHaveNonCanonicalOverload(OpCode OC) {
 }
 
 Function *OP::GetOpFunc(OpCode OC, ArrayRef<Type *> OverloadTypes) {
-  if (OC >= OpCode::NumOpCodes)
+  if (!IsValidOpCode(OC))
     return nullptr;
-  if (OverloadTypes.size() !=
-      m_OpCodeProps[static_cast<unsigned>(OC)].NumOverloadDims) {
+  if (OverloadTypes.size() != GetOpCodeProps(OC).NumOverloadDims) {
     llvm_unreachable("incorrect overload dimensions");
     return nullptr;
   }
@@ -3743,12 +4518,12 @@ Function *OP::GetOpFunc(OpCode OC, ArrayRef<Type *> OverloadTypes) {
 }
 
 Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
-  if (opCode >= OpCode::NumOpCodes)
+  if (!IsValidOpCode(opCode))
     return nullptr;
   if (!pOverloadType)
     return nullptr;
 
-  auto &OpProps = m_OpCodeProps[static_cast<unsigned>(opCode)];
+  auto &OpProps = GetOpCodeProps(opCode);
   if (IsDxilOpExtendedOverload(opCode)) {
     // Make sure pOverloadType is well formed for an extended overload.
     StructType *ST = dyn_cast<StructType>(pOverloadType);
@@ -3792,10 +4567,12 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
   Type *pI16 = Type::getInt16Ty(m_Ctx);
   Type *pI32 = Type::getInt32Ty(m_Ctx);
   Type *pOlTplI32 = Type::getInt32Ty(m_Ctx);
+  Type *pVecElt = nullptr;
   if (pOverloadType->isVectorTy()) {
     pOlTplI32 =
         VectorType::get(pOlTplI32, pOverloadType->getVectorNumElements());
     pOlTplI1 = VectorType::get(pOlTplI1, pOverloadType->getVectorNumElements());
+    pVecElt = pOverloadType->getVectorElementType();
   }
 
   Type *pPI32 = Type::getInt32PtrTy(m_Ctx);
@@ -3822,10 +4599,13 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 #define A(_x) ArgTypes.emplace_back(_x)
 #define RRT(_y) A(GetResRetType(_y))
 #define CBRT(_y) A(GetCBufferRetType(_y))
+#define VEC2(_y) A(VectorType::get(_y, 2))
 #define VEC4(_y) A(GetStructVectorType(4, _y))
+#define VEC9(_y) A(VectorType::get(_y, 9))
+#define TGSM(_y) A(PointerType::get(_y, DXIL::kTGSMAddrSpace))
 
 // Extended Overload types are wrapped in an anonymous struct
-#define EXT(_y) A(cast<StructType>(pOverloadType)->getElementType(_y))
+#define EXT(_y) cast<StructType>(pOverloadType)->getElementType(_y)
 
   /* <py::lines('OPCODE-OLOAD-FUNCS')>hctdb_instrhelp.get_oloads_funcs()</py>*/
   switch (opCode) { // return     opCode
@@ -4379,7 +5159,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
   case OpCode::CheckAccessFullyMapped:
     A(pI1);
     A(pI32);
-    A(pI32);
+    A(pETy);
     break;
   case OpCode::GetDimensions:
     A(pDim);
@@ -4467,9 +5247,9 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pI32);
     A(pRes);
     A(pRes);
-    A(pF32);
-    A(pF32);
-    A(pF32);
+    A(pETy);
+    A(pETy);
+    A(pETy);
     A(pI1);
     break;
 
@@ -4528,36 +5308,36 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pI8);
     break;
   case OpCode::SampleIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
   case OpCode::Coverage:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
   case OpCode::InnerCoverage:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Compute/Mesh/Amplification/Node shader
   case OpCode::ThreadId:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::GroupId:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::ThreadIdInGroup:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::FlattenedThreadIdInGroup:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -4578,13 +5358,13 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pI8);
     break;
   case OpCode::GSInstanceID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Double precision
   case OpCode::MakeDouble:
-    A(pF64);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI32);
@@ -4592,7 +5372,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
   case OpCode::SplitDouble:
     A(pSDT);
     A(pI32);
-    A(pF64);
+    A(pETy);
     break;
 
     // Domain and hull shader
@@ -4614,7 +5394,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Domain shader
   case OpCode::DomainLocation:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
@@ -4629,13 +5409,13 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pETy);
     break;
   case OpCode::OutputControlPointID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Hull, Domain and Geometry shaders
   case OpCode::PrimitiveID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -4809,7 +5589,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Graphics shader
   case OpCode::ViewID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -4839,71 +5619,71 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Raytracing object space uint System Values
   case OpCode::InstanceID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
   case OpCode::InstanceIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Raytracing hit uint System Values
   case OpCode::HitKind:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Raytracing uint System Values
   case OpCode::RayFlags:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Ray Dispatch Arguments
   case OpCode::DispatchRaysIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
   case OpCode::DispatchRaysDimensions:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
 
     // Ray Vectors
   case OpCode::WorldRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
   case OpCode::WorldRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
 
     // Ray object space Vectors
   case OpCode::ObjectRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
   case OpCode::ObjectRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI8);
     break;
 
     // Ray Transforms
   case OpCode::ObjectToWorld:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::WorldToObject:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
@@ -4911,11 +5691,11 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // RayT
   case OpCode::RayTMin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     break;
   case OpCode::RayTCurrent:
-    A(pF32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -4972,7 +5752,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Raytracing object space uint System Values
   case OpCode::PrimitiveIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -4987,16 +5767,16 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pF16);
     break;
   case OpCode::Dot4AddI8Packed:
+    A(pETy);
     A(pI32);
-    A(pI32);
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::Dot4AddU8Packed:
+    A(pETy);
     A(pI32);
-    A(pI32);
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
@@ -5156,7 +5936,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pF32);
     break;
   case OpCode::RayQuery_Proceed:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
@@ -5177,162 +5957,162 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pF32);
     break;
   case OpCode::RayQuery_CommittedStatus:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateType:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateObjectToWorld3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CandidateWorldToObject3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CommittedObjectToWorld3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CommittedWorldToObject3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CandidateProceduralPrimitiveNonOpaque:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateTriangleFrontFace:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedTriangleFrontFace:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateTriangleBarycentrics:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CommittedTriangleBarycentrics:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_RayFlags:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_WorldRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_WorldRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_RayTMin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateTriangleRayT:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedRayT:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateInstanceIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateInstanceID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateGeometryIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidatePrimitiveIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CandidateObjectRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CandidateObjectRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CommittedInstanceIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedInstanceID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedGeometryIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedPrimitiveIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedObjectRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
     break;
   case OpCode::RayQuery_CommittedObjectRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pI32);
     A(pI8);
@@ -5340,18 +6120,18 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Raytracing object space uint System Values, raytracing tier 1.1
   case OpCode::GeometryIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
     // Inline Ray Query
   case OpCode::RayQuery_CandidateInstanceContributionToHitGroupIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
   case OpCode::RayQuery_CommittedInstanceContributionToHitGroupIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pI32);
     break;
@@ -5399,7 +6179,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Helper Lanes
   case OpCode::IsHelperLane:
-    A(pI1);
+    A(pETy);
     A(pI32);
     break;
 
@@ -5651,11 +6431,11 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
     // Extended Command Information
   case OpCode::StartVertexLocation:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
   case OpCode::StartInstanceLocation:
-    A(pI32);
+    A(pETy);
     A(pI32);
     break;
 
@@ -5745,100 +6525,100 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pI32);
     break;
   case OpCode::HitObject_IsMiss:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_IsHit:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_IsNop:
-    A(pI1);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_RayFlags:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_RayTMin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_RayTCurrent:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_WorldRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     break;
   case OpCode::HitObject_WorldRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     break;
   case OpCode::HitObject_ObjectRayOrigin:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     break;
   case OpCode::HitObject_ObjectRayDirection:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     break;
   case OpCode::HitObject_ObjectToWorld3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     A(pI32);
     break;
   case OpCode::HitObject_WorldToObject3x4:
-    A(pF32);
+    A(pETy);
     A(pI32);
     A(pHit);
     A(pI32);
     A(pI32);
     break;
   case OpCode::HitObject_GeometryIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_InstanceIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_InstanceID:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_PrimitiveIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_HitKind:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
   case OpCode::HitObject_ShaderTableIndex:
-    A(pI32);
+    A(pETy);
     A(pI32);
     A(pHit);
     break;
@@ -5934,58 +6714,410 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
     A(pI32);
     break;
 
-    // Linear Algebra Operations
-  case OpCode::MatVecMul:
-    EXT(0);
-    A(pI32);
-    EXT(1);
-    A(pI1);
-    A(pI32);
-    A(pRes);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI1);
-    A(pI32);
-    A(pI1);
-    break;
-  case OpCode::MatVecMulAdd:
-    EXT(0);
-    A(pI32);
-    EXT(1);
-    A(pI1);
-    A(pI32);
-    A(pRes);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI32);
-    A(pI1);
-    A(pI32);
-    A(pRes);
-    A(pI32);
-    A(pI32);
-    A(pI1);
-    break;
-  case OpCode::OuterProductAccumulate:
+    //
+  case OpCode::ReservedD0:
     A(pV);
     A(pI32);
-    EXT(0);
-    EXT(1);
+    break;
+  case OpCode::ReservedD1:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedD2:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedD3:
+    A(pV);
+    A(pI32);
+    break;
+
+    // Vector reduce to scalar
+  case OpCode::VectorReduceAnd:
+    A(pVecElt);
+    A(pI32);
+    A(pETy);
+    break;
+  case OpCode::VectorReduceOr:
+    A(pVecElt);
+    A(pI32);
+    A(pETy);
+    break;
+
+    // Dot
+  case OpCode::FDot:
+    A(pVecElt);
+    A(pI32);
+    A(pETy);
+    A(pETy);
+    break;
+
+    // Group Wave Ops
+  case OpCode::GetGroupWaveIndex:
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::GetGroupWaveCount:
+    A(pI32);
+    A(pI32);
+    break;
+
+    // Raytracing uint System Values
+  case OpCode::ClusterID:
+    A(pI32);
+    A(pI32);
+    break;
+
+    // Inline Ray Query
+  case OpCode::RayQuery_CandidateClusterID:
+    A(pETy);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::RayQuery_CommittedClusterID:
+    A(pETy);
+    A(pI32);
+    A(pI32);
+    break;
+
+    // Shader Execution Reordering
+  case OpCode::HitObject_ClusterID:
+    A(pETy);
+    A(pI32);
+    A(pHit);
+    break;
+
+    // Raytracing System Values
+  case OpCode::TriangleObjectPosition:
+    VEC9(pETy);
+    A(pI32);
+    break;
+
+    // Inline Ray Query
+  case OpCode::RayQuery_CandidateTriangleObjectPosition:
+    VEC9(pETy);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::RayQuery_CommittedTriangleObjectPosition:
+    VEC9(pETy);
+    A(pI32);
+    A(pI32);
+    break;
+
+    // Shader Execution Reordering
+  case OpCode::HitObject_TriangleObjectPosition:
+    VEC9(pETy);
+    A(pI32);
+    A(pHit);
+    break;
+
+    // Linear Algebra Operations
+  case OpCode::LinAlgMatrixMultiplyAccumulate:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(EXT(2));
+    A(EXT(3));
+    break;
+  case OpCode::LinAlgFillMatrix:
+    A(EXT(0));
+    A(pI32);
+    A(pI1);
+    A(EXT(1));
+    break;
+  case OpCode::LinAlgCopyConvertMatrix:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI1);
+    break;
+  case OpCode::LinAlgMatrixLoadFromDescriptor:
+    A(pETy);
+    A(pI32);
     A(pRes);
     A(pI32);
     A(pI32);
     A(pI32);
     A(pI32);
     break;
-  case OpCode::VectorAccumulate:
+  case OpCode::LinAlgMatrixLoadFromMemory:
+    A(EXT(0));
+    A(pI32);
+    TGSM(EXT(1));
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixLength:
+    A(pI32);
+    A(pI32);
+    A(pETy);
+    break;
+  case OpCode::LinAlgMatrixGetCoordinate:
+    VEC2(pI32);
+    A(pI32);
+    A(pETy);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixGetElement:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixSetElement:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI32);
+    A(EXT(2));
+    break;
+  case OpCode::LinAlgMatrixStoreToDescriptor:
     A(pV);
     A(pI32);
     A(pETy);
     A(pRes);
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixStoreToMemory:
+    A(pV);
+    A(pI32);
+    A(EXT(0));
+    TGSM(EXT(1));
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixQueryAccumulatorLayout:
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixMultiply:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(EXT(2));
+    break;
+  case OpCode::LinAlgMatrixAccumulate:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(EXT(2));
+    break;
+  case OpCode::LinAlgMatVecMul:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI1);
+    A(EXT(2));
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatVecMulAdd:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI1);
+    A(EXT(2));
+    A(pI32);
+    A(EXT(3));
+    break;
+  case OpCode::LinAlgMatrixAccumulateToDescriptor:
+    A(pV);
+    A(pI32);
+    A(pETy);
+    A(pRes);
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixAccumulateToMemory:
+    A(pV);
+    A(pI32);
+    A(EXT(0));
+    TGSM(EXT(1));
+    A(pI32);
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgMatrixOuterProduct:
+    A(EXT(0));
+    A(pI32);
+    A(pI1);
+    A(EXT(1));
+    A(EXT(2));
+    break;
+  case OpCode::LinAlgConvert:
+    A(EXT(0));
+    A(pI32);
+    A(EXT(1));
+    A(pI32);
+    A(pI32);
+    break;
+  case OpCode::LinAlgVectorAccumulateToDescriptor:
+    A(pV);
+    A(pI32);
+    A(pRes);
+    A(pI32);
+    A(pI32);
+    A(pETy);
+    break;
+
+    // Debugging
+  case OpCode::DebugBreak:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::IsDebuggingEnabled:
+    A(pI1);
+    A(pI32);
+    break;
+
+    // No-op
+  case OpCode::ExperimentalNop:
+    A(pV);
+    A(pI32);
+    break;
+
+    //
+  case OpCode::ReservedE0:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE1:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE2:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE3:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE4:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE5:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE6:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE7:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE8:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE9:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE10:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE11:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE12:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE13:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE14:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE15:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE16:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE17:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE18:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE19:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE20:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE21:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE22:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE23:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE24:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE25:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE26:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE27:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE28:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE29:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE30:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE31:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE32:
+    A(pV);
+    A(pI32);
+    break;
+  case OpCode::ReservedE33:
+    A(pV);
     A(pI32);
     break;
   // OPCODE-OLOAD-FUNCS:END
@@ -6030,8 +7162,7 @@ Function *OP::GetOpFunc(OpCode opCode, Type *pOverloadType) {
 
 const SmallMapVector<llvm::Type *, llvm::Function *, 8> &
 OP::GetOpFuncList(OpCode opCode) const {
-  return m_OpCodeClassCache[(unsigned)m_OpCodeProps[(unsigned)opCode]
-                                .opCodeClass]
+  return m_OpCodeClassCache[(unsigned)GetOpCodeProps(opCode).opCodeClass]
       .pOverloads;
 }
 
@@ -6140,6 +7271,7 @@ llvm::Type *OP::GetOverloadType(OpCode opCode, llvm::Function *F) {
   case OpCode::StorePrimitiveOutput:
   case OpCode::DispatchMesh:
   case OpCode::RawBufferVectorStore:
+  case OpCode::LinAlgVectorAccumulateToDescriptor:
     if (FT->getNumParams() <= 4)
       return nullptr;
     return FT->getParamType(4);
@@ -6156,10 +7288,18 @@ llvm::Type *OP::GetOverloadType(OpCode opCode, llvm::Function *F) {
   case OpCode::UDiv:
   case OpCode::UAddc:
   case OpCode::USubb:
+  case OpCode::CheckAccessFullyMapped:
+  case OpCode::SplitDouble:
   case OpCode::WaveActiveAllEqual:
   case OpCode::CreateHandleForLib:
   case OpCode::WaveMatch:
-  case OpCode::VectorAccumulate:
+  case OpCode::VectorReduceAnd:
+  case OpCode::VectorReduceOr:
+  case OpCode::FDot:
+  case OpCode::LinAlgMatrixLength:
+  case OpCode::LinAlgMatrixGetCoordinate:
+  case OpCode::LinAlgMatrixStoreToDescriptor:
+  case OpCode::LinAlgMatrixAccumulateToDescriptor:
     if (FT->getNumParams() <= 1)
       return nullptr;
     return FT->getParamType(1);
@@ -6168,16 +7308,17 @@ llvm::Type *OP::GetOverloadType(OpCode opCode, llvm::Function *F) {
     if (FT->getNumParams() <= 5)
       return nullptr;
     return FT->getParamType(5);
-  case OpCode::TraceRay:
-  case OpCode::HitObject_TraceRay:
-    if (FT->getNumParams() <= 15)
-      return nullptr;
-    return FT->getParamType(15);
+  case OpCode::CalculateLOD:
   case OpCode::ReportHit:
   case OpCode::HitObject_FromRayQueryWithAttrs:
     if (FT->getNumParams() <= 3)
       return nullptr;
     return FT->getParamType(3);
+  case OpCode::TraceRay:
+  case OpCode::HitObject_TraceRay:
+    if (FT->getNumParams() <= 15)
+      return nullptr;
+    return FT->getParamType(15);
   case OpCode::CreateHandle:
   case OpCode::BufferUpdateCounter:
   case OpCode::GetDimensions:
@@ -6276,98 +7417,53 @@ llvm::Type *OP::GetOverloadType(OpCode opCode, llvm::Function *F) {
   case OpCode::ReservedC7:
   case OpCode::ReservedC8:
   case OpCode::ReservedC9:
+  case OpCode::ReservedD0:
+  case OpCode::ReservedD1:
+  case OpCode::ReservedD2:
+  case OpCode::ReservedD3:
+  case OpCode::GetGroupWaveIndex:
+  case OpCode::GetGroupWaveCount:
+  case OpCode::ClusterID:
+  case OpCode::LinAlgMatrixQueryAccumulatorLayout:
+  case OpCode::DebugBreak:
+  case OpCode::IsDebuggingEnabled:
+  case OpCode::ExperimentalNop:
+  case OpCode::ReservedE0:
+  case OpCode::ReservedE1:
+  case OpCode::ReservedE2:
+  case OpCode::ReservedE3:
+  case OpCode::ReservedE4:
+  case OpCode::ReservedE5:
+  case OpCode::ReservedE6:
+  case OpCode::ReservedE7:
+  case OpCode::ReservedE8:
+  case OpCode::ReservedE9:
+  case OpCode::ReservedE10:
+  case OpCode::ReservedE11:
+  case OpCode::ReservedE12:
+  case OpCode::ReservedE13:
+  case OpCode::ReservedE14:
+  case OpCode::ReservedE15:
+  case OpCode::ReservedE16:
+  case OpCode::ReservedE17:
+  case OpCode::ReservedE18:
+  case OpCode::ReservedE19:
+  case OpCode::ReservedE20:
+  case OpCode::ReservedE21:
+  case OpCode::ReservedE22:
+  case OpCode::ReservedE23:
+  case OpCode::ReservedE24:
+  case OpCode::ReservedE25:
+  case OpCode::ReservedE26:
+  case OpCode::ReservedE27:
+  case OpCode::ReservedE28:
+  case OpCode::ReservedE29:
+  case OpCode::ReservedE30:
+  case OpCode::ReservedE31:
+  case OpCode::ReservedE32:
+  case OpCode::ReservedE33:
     return Type::getVoidTy(Ctx);
-  case OpCode::CheckAccessFullyMapped:
-  case OpCode::SampleIndex:
-  case OpCode::Coverage:
-  case OpCode::InnerCoverage:
-  case OpCode::ThreadId:
-  case OpCode::GroupId:
-  case OpCode::ThreadIdInGroup:
-  case OpCode::FlattenedThreadIdInGroup:
-  case OpCode::GSInstanceID:
-  case OpCode::OutputControlPointID:
-  case OpCode::PrimitiveID:
-  case OpCode::ViewID:
-  case OpCode::InstanceID:
-  case OpCode::InstanceIndex:
-  case OpCode::HitKind:
-  case OpCode::RayFlags:
-  case OpCode::DispatchRaysIndex:
-  case OpCode::DispatchRaysDimensions:
-  case OpCode::PrimitiveIndex:
-  case OpCode::Dot4AddI8Packed:
-  case OpCode::Dot4AddU8Packed:
-  case OpCode::RayQuery_CommittedStatus:
-  case OpCode::RayQuery_CandidateType:
-  case OpCode::RayQuery_RayFlags:
-  case OpCode::RayQuery_CandidateInstanceIndex:
-  case OpCode::RayQuery_CandidateInstanceID:
-  case OpCode::RayQuery_CandidateGeometryIndex:
-  case OpCode::RayQuery_CandidatePrimitiveIndex:
-  case OpCode::RayQuery_CommittedInstanceIndex:
-  case OpCode::RayQuery_CommittedInstanceID:
-  case OpCode::RayQuery_CommittedGeometryIndex:
-  case OpCode::RayQuery_CommittedPrimitiveIndex:
-  case OpCode::GeometryIndex:
-  case OpCode::RayQuery_CandidateInstanceContributionToHitGroupIndex:
-  case OpCode::RayQuery_CommittedInstanceContributionToHitGroupIndex:
-  case OpCode::StartVertexLocation:
-  case OpCode::StartInstanceLocation:
-  case OpCode::HitObject_RayFlags:
-  case OpCode::HitObject_GeometryIndex:
-  case OpCode::HitObject_InstanceIndex:
-  case OpCode::HitObject_InstanceID:
-  case OpCode::HitObject_PrimitiveIndex:
-  case OpCode::HitObject_HitKind:
-  case OpCode::HitObject_ShaderTableIndex:
-    return IntegerType::get(Ctx, 32);
-  case OpCode::CalculateLOD:
-  case OpCode::DomainLocation:
-  case OpCode::WorldRayOrigin:
-  case OpCode::WorldRayDirection:
-  case OpCode::ObjectRayOrigin:
-  case OpCode::ObjectRayDirection:
-  case OpCode::ObjectToWorld:
-  case OpCode::WorldToObject:
-  case OpCode::RayTMin:
-  case OpCode::RayTCurrent:
-  case OpCode::RayQuery_CandidateObjectToWorld3x4:
-  case OpCode::RayQuery_CandidateWorldToObject3x4:
-  case OpCode::RayQuery_CommittedObjectToWorld3x4:
-  case OpCode::RayQuery_CommittedWorldToObject3x4:
-  case OpCode::RayQuery_CandidateTriangleBarycentrics:
-  case OpCode::RayQuery_CommittedTriangleBarycentrics:
-  case OpCode::RayQuery_WorldRayOrigin:
-  case OpCode::RayQuery_WorldRayDirection:
-  case OpCode::RayQuery_RayTMin:
-  case OpCode::RayQuery_CandidateTriangleRayT:
-  case OpCode::RayQuery_CommittedRayT:
-  case OpCode::RayQuery_CandidateObjectRayOrigin:
-  case OpCode::RayQuery_CandidateObjectRayDirection:
-  case OpCode::RayQuery_CommittedObjectRayOrigin:
-  case OpCode::RayQuery_CommittedObjectRayDirection:
-  case OpCode::HitObject_RayTMin:
-  case OpCode::HitObject_RayTCurrent:
-  case OpCode::HitObject_WorldRayOrigin:
-  case OpCode::HitObject_WorldRayDirection:
-  case OpCode::HitObject_ObjectRayOrigin:
-  case OpCode::HitObject_ObjectRayDirection:
-  case OpCode::HitObject_ObjectToWorld3x4:
-  case OpCode::HitObject_WorldToObject3x4:
-    return Type::getFloatTy(Ctx);
-  case OpCode::MakeDouble:
-  case OpCode::SplitDouble:
-    return Type::getDoubleTy(Ctx);
-  case OpCode::RayQuery_Proceed:
-  case OpCode::RayQuery_CandidateProceduralPrimitiveNonOpaque:
-  case OpCode::RayQuery_CandidateTriangleFrontFace:
-  case OpCode::RayQuery_CommittedTriangleFrontFace:
-  case OpCode::IsHelperLane:
   case OpCode::QuadVote:
-  case OpCode::HitObject_IsMiss:
-  case OpCode::HitObject_IsHit:
-  case OpCode::HitObject_IsNop:
     return IntegerType::get(Ctx, 1);
   case OpCode::CBufferLoadLegacy:
   case OpCode::Sample:
@@ -6390,18 +7486,74 @@ llvm::Type *OP::GetOverloadType(OpCode opCode, llvm::Function *F) {
     StructType *ST = cast<StructType>(Ty);
     return ST->getElementType(0);
   }
-  case OpCode::MatVecMul:
-  case OpCode::MatVecMulAdd:
+  case OpCode::TriangleObjectPosition:
+  case OpCode::RayQuery_CandidateTriangleObjectPosition:
+  case OpCode::RayQuery_CommittedTriangleObjectPosition:
+  case OpCode::HitObject_TriangleObjectPosition:
+    // These return native vectors directly
+    return cast<VectorType>(Ty)->getElementType();
+  case OpCode::LinAlgMatrixMultiplyAccumulate:
+    if (FT->getNumParams() < 4)
+      return nullptr;
+    return llvm::StructType::get(Ctx,
+                                 {FT->getReturnType(), FT->getParamType(1),
+                                  FT->getParamType(2), FT->getParamType(3)});
+
+  case OpCode::LinAlgFillMatrix:
+    if (FT->getNumParams() < 3)
+      return nullptr;
+    return llvm::StructType::get(Ctx,
+                                 {FT->getReturnType(), FT->getParamType(2)});
+
+  case OpCode::LinAlgCopyConvertMatrix:
+  case OpCode::LinAlgMatrixGetElement:
+  case OpCode::LinAlgConvert:
     if (FT->getNumParams() < 2)
       return nullptr;
     return llvm::StructType::get(Ctx,
                                  {FT->getReturnType(), FT->getParamType(1)});
 
-  case OpCode::OuterProductAccumulate:
+  case OpCode::LinAlgMatrixLoadFromMemory:
+    if (FT->getNumParams() < 2)
+      return nullptr;
+    return llvm::StructType::get(
+        Ctx,
+        {FT->getReturnType(), FT->getParamType(1)->getPointerElementType()});
+
+  case OpCode::LinAlgMatrixSetElement:
+  case OpCode::LinAlgMatVecMul:
+    if (FT->getNumParams() < 4)
+      return nullptr;
+    return llvm::StructType::get(
+        Ctx, {FT->getReturnType(), FT->getParamType(1), FT->getParamType(3)});
+
+  case OpCode::LinAlgMatrixStoreToMemory:
+  case OpCode::LinAlgMatrixAccumulateToMemory:
     if (FT->getNumParams() < 3)
       return nullptr;
+    return llvm::StructType::get(
+        Ctx,
+        {FT->getParamType(1), FT->getParamType(2)->getPointerElementType()});
+
+  case OpCode::LinAlgMatrixMultiply:
+  case OpCode::LinAlgMatrixAccumulate:
+    if (FT->getNumParams() < 3)
+      return nullptr;
+    return llvm::StructType::get(
+        Ctx, {FT->getReturnType(), FT->getParamType(1), FT->getParamType(2)});
+
+  case OpCode::LinAlgMatVecMulAdd:
+    if (FT->getNumParams() < 6)
+      return nullptr;
     return llvm::StructType::get(Ctx,
-                                 {FT->getParamType(1), FT->getParamType(2)});
+                                 {FT->getReturnType(), FT->getParamType(1),
+                                  FT->getParamType(3), FT->getParamType(5)});
+
+  case OpCode::LinAlgMatrixOuterProduct:
+    if (FT->getNumParams() < 4)
+      return nullptr;
+    return llvm::StructType::get(
+        Ctx, {FT->getReturnType(), FT->getParamType(2), FT->getParamType(3)});
 
   // OPCODE-OLOAD-TYPES:END
   default:

@@ -65,6 +65,9 @@ SpirvContext::~SpirvContext() {
   for (auto *npaType : nodePayloadArrayTypes)
     npaType->~NodePayloadArrayType();
 
+  for (auto &pair : bufferEXTTypes)
+    pair.second->~BufferEXTType();
+
   for (auto *fnType : functionTypes)
     fnType->~FunctionType();
 
@@ -265,14 +268,15 @@ SpirvContext::getArrayType(const SpirvType *elemType, uint32_t elemCount,
 
 const RuntimeArrayType *
 SpirvContext::getRuntimeArrayType(const SpirvType *elemType,
-                                  llvm::Optional<uint32_t> arrayStride) {
-  RuntimeArrayType type(elemType, arrayStride);
+                                  llvm::Optional<uint32_t> arrayStride,
+                                  SpirvInstruction *arrayStrideId) {
+  RuntimeArrayType type(elemType, arrayStride, arrayStrideId);
   auto found = runtimeArrayTypes.find(&type);
   if (found != runtimeArrayTypes.end())
     return *found;
 
   auto inserted = runtimeArrayTypes.insert(
-      new (this) RuntimeArrayType(elemType, arrayStride));
+      new (this) RuntimeArrayType(elemType, arrayStride, arrayStrideId));
   return *(inserted.first);
 }
 
@@ -337,6 +341,15 @@ const SpirvPointerType *SpirvContext::getPointerType(const SpirvType *pointee,
   return pointerTypes[pointee][sc] = new (this) SpirvPointerType(pointee, sc);
 }
 
+const UntypedPointerKHRType *
+SpirvContext::getUntypedPointerKHRType(spv::StorageClass sc) {
+  auto found = untypedPointerKHRTypes.find(sc);
+  if (found != untypedPointerKHRTypes.end()) {
+    return found->second;
+  }
+  return untypedPointerKHRTypes[sc] = new (this) UntypedPointerKHRType(sc);
+}
+
 const HybridPointerType *SpirvContext::getPointerType(QualType pointee,
                                                       spv::StorageClass sc) {
   const HybridPointerType *result = new (this) HybridPointerType(pointee, sc);
@@ -391,6 +404,14 @@ const StructType *SpirvContext::getByteAddressBufferType(bool isWritable) {
                        isWritable ? "type.RWByteAddressBuffer"
                                   : "type.ByteAddressBuffer",
                        !isWritable, StructInterfaceType::StorageBuffer);
+}
+
+const BufferEXTType *SpirvContext::getBufferEXTType(spv::StorageClass sc) {
+  auto found = bufferEXTTypes.find(sc);
+  if (found != bufferEXTTypes.end())
+    return found->second;
+
+  return bufferEXTTypes[sc] = new (this) BufferEXTType(sc);
 }
 
 const StructType *SpirvContext::getACSBufferCounterType() {

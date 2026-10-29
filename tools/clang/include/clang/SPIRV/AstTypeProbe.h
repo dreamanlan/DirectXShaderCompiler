@@ -222,10 +222,12 @@ bool isRWStructuredBuffer(QualType type);
 bool isRWAppendConsumeSBuffer(QualType type);
 
 /// \brief Returns true if the given type is a ResourceDescriptorHeap.
-bool isResourceDescriptorHeap(QualType type);
+bool isResourceDescriptorHeap(QualType T);
+bool isResourceDescriptorHeap(const Decl *D);
 
 /// \brief Returns true if the given type is a SamplerDescriptorHeap.
-bool isSamplerDescriptorHeap(QualType type);
+bool isSamplerDescriptorHeap(const Decl *D);
+bool isSamplerDescriptorHeap(QualType T);
 
 /// \brief Returns true if the given type is the HLSL ByteAddressBufferType.
 bool isByteAddressBuffer(QualType type);
@@ -254,6 +256,13 @@ bool isTexture(QualType);
 /// \brief Returns true if the given type is an HLSL Texture2DMS or
 /// Texture2DMSArray type.
 bool isTextureMS(QualType);
+
+/// \brief Returns true if the given type is an HLSL SampledTexture2DMS or
+/// SampledTexture2DMSArray type.
+bool isSampledTextureMS(QualType);
+
+/// \brief Returns true if the given type is an HLSL SampledTexture type.
+bool isSampledTexture(QualType);
 
 /// \brief Returns true if the given type is an HLSL RWTexture type.
 bool isRWTexture(QualType);
@@ -312,6 +321,9 @@ bool isSintOrVecOfSintType(QualType type);
 /// Returns true if the given type is an unsigned integer or vector of unsigned
 /// integer type.
 bool isUintOrVecOfUintType(QualType type);
+
+/// Returns true if the given type is a half or vector of half type.
+bool isHalfOrVecOfHalfType(QualType type);
 
 /// Returns true if the given type is a float or vector of float type.
 bool isFloatOrVecOfFloatType(QualType type);

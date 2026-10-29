@@ -23,6 +23,7 @@ namespace clang {
 namespace spirv {
 
 class HybridType;
+class SpirvInstruction;
 
 enum class StructInterfaceType : uint32_t {
   InternalStorage = 0,
@@ -59,6 +60,8 @@ public:
     TK_AccelerationStructureNV,
     TK_RayQueryKHR,
     TK_SpirvIntrinsicType,
+    TK_BufferEXT,
+    TK_UntypedPointerKHR,
     // Order matters: all the following are hybrid types
     TK_HybridStruct,
     TK_HybridPointer,
@@ -272,8 +275,12 @@ private:
 class RuntimeArrayType : public SpirvType {
 public:
   RuntimeArrayType(const SpirvType *elemType,
-                   llvm::Optional<uint32_t> arrayStride)
-      : SpirvType(TK_RuntimeArray), elementType(elemType), stride(arrayStride) {
+                   llvm::Optional<uint32_t> arrayStride,
+                   SpirvInstruction *strideId = nullptr)
+      : SpirvType(TK_RuntimeArray), elementType(elemType), stride(arrayStride),
+        arrayStrideId(strideId) {
+    assert(!(arrayStride.hasValue() && strideId) &&
+           "literal stride and stride-id are mutually exclusive");
   }
 
   static bool classof(const SpirvType *t) {
@@ -284,12 +291,17 @@ public:
 
   const SpirvType *getElementType() const { return elementType; }
   llvm::Optional<uint32_t> getStride() const { return stride; }
+  // When non-null, the array is decorated with ArrayStrideIdEXT referencing
+  // this constant <id> instead of a literal ArrayStride. Mutually exclusive
+  // with a literal stride.
+  SpirvInstruction *getArrayStrideId() const { return arrayStrideId; }
 
 private:
   const SpirvType *elementType;
   // Two runtime arrays with different ArrayStride decorations, are in fact two
   // different types. If no layout information is needed, use llvm::None.
   llvm::Optional<uint32_t> stride;
+  SpirvInstruction *arrayStrideId = nullptr;
 };
 
 class NodePayloadArrayType : public SpirvType {
@@ -387,6 +399,45 @@ private:
   // If this structure is a uniform buffer shader-interface, it will be
   // decorated with 'Block'.
   StructInterfaceType interfaceType;
+};
+
+class BufferEXTType : public SpirvType {
+public:
+  BufferEXTType(spv::StorageClass sc)
+      : SpirvType(TK_BufferEXT, "type.buffer.ext"), storageClass(sc) {}
+
+  static bool classof(const SpirvType *t) {
+    return t->getKind() == TK_BufferEXT;
+  }
+
+  bool operator==(const BufferEXTType &that) const {
+    return storageClass == that.storageClass;
+  }
+
+  spv::StorageClass getStorageClass() const { return storageClass; }
+
+private:
+  spv::StorageClass storageClass;
+};
+
+class UntypedPointerKHRType : public SpirvType {
+public:
+  UntypedPointerKHRType(spv::StorageClass sc)
+      : SpirvType(TK_UntypedPointerKHR, "type.untyped.pointer"),
+        storageClass(sc) {}
+
+  static bool classof(const SpirvType *t) {
+    return t->getKind() == TK_UntypedPointerKHR;
+  }
+
+  bool operator==(const UntypedPointerKHRType &that) const {
+    return storageClass == that.storageClass;
+  }
+
+  spv::StorageClass getStorageClass() const { return storageClass; }
+
+private:
+  spv::StorageClass storageClass;
 };
 
 /// Represents a SPIR-V pointer type.

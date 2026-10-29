@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/AST/OperationKinds.h"
-#include "clang/Sema/SemaInternal.h"
 #include "TreeTransform.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
@@ -25,6 +23,8 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/AST/HlslTypes.h" // HLSL Change
+#include "clang/AST/OperationKinds.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/PartialDiagnostic.h"
@@ -42,9 +42,10 @@
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaFixItUtils.h"
+#include "clang/Sema/SemaHLSL.h" // HLSL Change
+#include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
 #include "llvm/Support/ConvertUTF.h"
-#include "clang/Sema/SemaHLSL.h" // HLSL Change
 using namespace clang;
 using namespace sema;
 
@@ -62,7 +63,9 @@ bool Sema::CanUseDecl(NamedDecl *D) {
 
     // If the function has a deduced return type, and we can't deduce it,
     // then we can't use it either.
-    if (getLangOpts().CPlusPlus14 && FD->getReturnType()->isUndeducedType() &&
+    // HLSL Change - HLSL supports C++14-style deduced return types.
+    if ((getLangOpts().CPlusPlus14 || getLangOpts().HLSL) &&
+        FD->getReturnType()->isUndeducedType() &&
         DeduceReturnType(FD, SourceLocation(), /*Diagnose*/ false))
       return false;
   }
@@ -365,8 +368,9 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
 
     // If the function has a deduced return type, and we can't deduce it,
     // then we can't use it either.
-    if (getLangOpts().CPlusPlus14 && FD->getReturnType()->isUndeducedType() &&
-        DeduceReturnType(FD, Loc))
+    // HLSL Change - HLSL supports C++14-style deduced return types.
+    if ((getLangOpts().CPlusPlus14 || getLangOpts().HLSL) &&
+        FD->getReturnType()->isUndeducedType() && DeduceReturnType(FD, Loc))
       return true;
   }
   DiagnoseAvailabilityOfDecl(*this, D, Loc, UnknownObjCClass,
@@ -3536,7 +3540,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
       if (Val < std::numeric_limits<uint32_t>::max())
         Width = 32;
       uint64_t MSB = 1ull << (Width - 1);
-      if ((Val & MSB) != 0)
+      if (!Literal.isUnsigned && (Val & MSB) != 0)
         Diag(Tok.getLocation(),
              diag::warn_hlsl_legacy_integer_literal_signedness);
     }
@@ -3698,7 +3702,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
     // HLSL Change Begin - 202x integer warnings.
     if (Literal.getRadix() != 10) {
       uint64_t Val = ResultVal.getLimitedValue();
-      if ((Val & MSB) != 0)
+      if (!Literal.isUnsigned && (Val & MSB) != 0)
         Diag(Tok.getLocation(),
              diag::warn_hlsl_legacy_integer_literal_signedness);
     }
@@ -3819,6 +3823,13 @@ bool Sema::CheckHLSLUnaryExprOrTypeTraitOperand(QualType ExprType,
     Diag(Loc, diag::err_hlsl_sizeof_literal) << ExprType;
     return true;
   }
+
+  // vk::BufferPointer is allowed in sizeof
+#ifdef ENABLE_SPIRV_CODEGEN
+  if (hlsl::IsVKBufferPointerType(ExprType)) {
+    return false;
+  }
+#endif
 
   if (!hlsl::IsHLSLNumericOrAggregateOfNumericType(ExprType)) {
     Diag(Loc, diag::err_hlsl_sizeof_nonnumeric) << ExprType;

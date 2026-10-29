@@ -13,6 +13,7 @@
 #include "clang/AST/Type.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Sema/SemaHLSL.h" // HLSL Change
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SaveAndRestore.h"
@@ -241,6 +242,7 @@ bool TypeDslPrinter::canPrefixQualifiers(const Type *T,
     case Type::FunctionNoProto:
     case Type::Paren:
     case Type::Attributed:
+    case Type::AttributedLinAlgMatrix: // HLSL Change
     case Type::PackExpansion:
     case Type::SubstTemplateTypeParm:
       CanPrefixQualifiers = false;
@@ -1209,6 +1211,44 @@ void TypeDslPrinter::printAttributedBefore(const AttributedType *T,
     spaceBeforePlaceHolder(OS);
   }
 }
+
+// HLSL Change Start
+void TypeDslPrinter::printAttributedLinAlgMatrixBefore(
+    const AttributedLinAlgMatrixType *T, raw_ostream &OS) {
+  printBefore(T->getWrappedType(), OS);
+}
+
+void TypeDslPrinter::printAttributedLinAlgMatrixAfter(
+    const AttributedLinAlgMatrixType *T, raw_ostream &OS) {
+  OS << " [[__LinAlgMatrix_Attributes("
+     << hlsl::ConvertLinAlgMatrixComponentTypeToString(T->getComponentType())
+     << ", " << T->getRows() << ", " << T->getCols() << ", "
+     << hlsl::ConvertLinAlgMatrixUseToString(T->getUse()) << ", "
+     << hlsl::ConvertLinAlgMatrixScopeToString(T->getScope()) << ")]]";
+  printAfter(T->getWrappedType(), OS);
+}
+
+void TypeDslPrinter::printDependentAttributedLinAlgMatrixBefore(
+    const DependentAttributedLinAlgMatrixType *T, raw_ostream &OS) {
+  printBefore(T->getWrappedType(), OS);
+}
+
+void TypeDslPrinter::printDependentAttributedLinAlgMatrixAfter(
+    const DependentAttributedLinAlgMatrixType *T, raw_ostream &OS) {
+  OS << " [[__LinAlgMatrix_Attributes(";
+  T->getComponentTyExpr()->printPretty(OS, nullptr, Policy);
+  OS << ", ";
+  T->getRowsExpr()->printPretty(OS, nullptr, Policy);
+  OS << ", ";
+  T->getColsExpr()->printPretty(OS, nullptr, Policy);
+  OS << ", ";
+  T->getUseExpr()->printPretty(OS, nullptr, Policy);
+  OS << ", ";
+  T->getScopeExpr()->printPretty(OS, nullptr, Policy);
+  OS << ")]]";
+  printAfter(T->getWrappedType(), OS);
+}
+// HLSL Change End
 
 void TypeDslPrinter::printAttributedAfter(const AttributedType *T,
                                        raw_ostream &OS) {

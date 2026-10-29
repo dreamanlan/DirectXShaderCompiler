@@ -964,7 +964,7 @@ static QualType GetOrCreateMatrixSpecialization(
                             "[SemaHLSL.cpp:839 ASSERT]"))));
   }
   // DSL Change end.
-#endif
+  }
 
   return matrixSpecializationType;
 }
@@ -1009,7 +1009,7 @@ GetOrCreateVectorSpecialization(ASTContext &context, Sema *sema,
                             "[SemaHLSL.cpp:880 ASSERT]"))));
   }
   // DSL Change end.
-#endif
+  }
 
   return vectorSpecializationType;
 }
